@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Taekwondo AI Coach｜橫踢真實骨架分析</title>
+
+  <!-- MediaPipe Pose（真實骨架偵測） -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+  <style>
+    /* ==============================
+       Taekwondo AI Coach
+       純 HTML + CSS + JS + MediaPipe Pose
+       深色科技感、手機優先、卡片式介面
+    ============================== */
+
+    :root {
+      --bg: #07111f;
+      --card: rgba(15, 28, 48, 0.92);
+      --card-2: rgba(20, 40, 68, 0.92);
+      --line: rgba(95, 180, 255, 0.28);
+      --text: #f3f8ff;
+      --muted: #9fb3c8;
+      --blue: #4cc9f0;
+      --cyan: #72f7ff;
+      --green: #55efc4;
+      --yellow: #ffd166;
+      --red: #ff6b6b;
+      --purple: #a855f7;
+      --shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Noto Sans TC", "Microsoft JhengHei", Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(76, 201, 240, 0.22), transparent 34%),
+        radial-gradient(circle at top right, rgba(168, 85, 247, 0.22), transparent 30%),
+        linear-gradient(135deg, #050b14, var(--bg));
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .app { width: min(1180px, 100%); margin: 0 auto; padding: 18px; }
+    .hero { padding: 22px 4px 18px; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px;
+      color: var(--cyan); background: rgba(76, 201, 240, 0.08);
+      font-size: 13px; letter-spacing: 0.5px;
+    }
+
+    .badge-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green); box-shadow: 0 0 18px var(--green);
+    }
+
+    h1 { margin: 14px 0 6px; font-size: clamp(32px, 7vw, 58px); line-height: 1.05; letter-spacing: -1px; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 17px; }
+
+    .layout { display: grid; grid-template-columns: 1fr; gap: 16px; }
+
+    .card {
+      background: linear-gradient(180deg, var(--card), rgba(8, 18, 32, 0.94));
+      border: 1px solid var(--line); border-radius: var(--radius);
+      box-shadow: var(--shadow); overflow: hidden;
+    }
+
+    .card-header {
+      padding: 16px 18px; border-bottom: 1px solid rgba(95, 180, 255, 0.18);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+
+    .card-title { margin: 0; font-size: 18px; }
+
+    .status {
+      font-size: 12px; color: var(--green); padding: 6px 10px;
+      border: 1px solid rgba(85, 239, 196, 0.35); border-radius: 999px;
+      background: rgba(85, 239, 196, 0.08); white-space: nowrap;
+    }
+    .status.warn { color: var(--yellow); border-color: rgba(255,209,102,0.4); background: rgba(255,209,102,0.08); }
+    .status.busy { color: var(--cyan); border-color: rgba(114,247,255,0.4); background: rgba(114,247,255,0.08); }
+
+    .camera-box {
+      position: relative; min-height: 380px;
+      background:
+        linear-gradient(rgba(114, 247, 255, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(114, 247, 255, 0.06) 1px, transparent 1px),
+        radial-gradient(circle at center, rgba(76, 201, 240, 0.14), transparent 45%),
+        #050c17;
+      background-size: 28px 28px, 28px 28px, auto, auto;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    video {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; display: none;
+    }
+
+    canvas { position: relative; width: 100%; max-width: 560px; height: 360px; z-index: 2; }
+
+    .camera-label {
+      position: absolute; left: 16px; top: 16px; z-index: 3;
+      padding: 8px 10px; border-radius: 12px;
+      background: rgba(0, 0, 0, 0.34); border: 1px solid rgba(255, 255, 255, 0.12);
+      font-size: 13px; color: var(--cyan); backdrop-filter: blur(8px);
+    }
+
+    .rec-overlay {
+      position: absolute; inset: 0; z-index: 4; display: none;
+      align-items: center; justify-content: center; flex-direction: column;
+      background: rgba(3, 8, 16, 0.55); backdrop-filter: blur(2px); gap: 12px;
+    }
+    .rec-overlay.show { display: flex; }
+    .rec-count { font-size: 72px; font-weight: 900; color: var(--cyan); text-shadow: 0 0 30px rgba(114,247,255,0.6); }
+    .rec-text { font-size: 18px; color: var(--text); font-weight: 700; }
+    .rec-dot {
+      width: 14px; height: 14px; border-radius: 50%; background: var(--red);
+      box-shadow: 0 0 18px var(--red); animation: pulse 0.8s infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+    .controls {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+      padding: 14px; background: rgba(3, 10, 20, 0.45);
+    }
+
+    button {
+      border: none; border-radius: 16px; padding: 14px 12px;
+      font-weight: 800; font-size: 15px; color: #06111f; cursor: pointer;
+      transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+    }
+    button:active { transform: scale(0.98); }
+    button:hover { filter: brightness(1.08); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.3); }
+
+    .btn-camera { background: linear-gradient(135deg, var(--cyan), var(--blue)); }
+    .btn-analyze { background: linear-gradient(135deg, var(--green), #7cffd5); }
+    .btn-reset { background: linear-gradient(135deg, #dbeafe, #93c5fd); }
+    .btn-export { background: linear-gradient(135deg, var(--yellow), #ffb703); }
+
+    .score-panel { padding: 16px; }
+
+    .total-score {
+      display: grid; grid-template-columns: 120px 1fr; gap: 14px; align-items: center;
+      padding: 16px; border-radius: 20px;
+      background:
+        radial-gradient(circle at left, rgba(85, 239, 196, 0.18), transparent 50%),
+        rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(85, 239, 196, 0.22); margin-bottom: 14px;
+    }
+
+    .score-circle {
+      width: 112px; height: 112px; border-radius: 50%;
+      border: 10px solid rgba(76, 201, 240, 0.22);
+      display: grid; place-items: center;
+      background: radial-gradient(circle, rgba(85, 239, 196, 0.22), rgba(76, 201, 240, 0.05));
+      box-shadow: inset 0 0 30px rgba(76, 201, 240, 0.18);
+    }
+
+    .score-number { font-size: 36px; font-weight: 900; color: var(--green); }
+    .score-copy h2 { margin: 0 0 6px; font-size: 22px; }
+    .score-copy p { margin: 0; color: var(--muted); line-height: 1.6; font-size: 14px; }
+
+    .metric { margin: 13px 0; }
+    .metric-top { display: flex; justify-content: space-between; margin-bottom: 7px; font-size: 14px; color: #d9e8f7; }
+    .bar { height: 11px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.08); }
+    .bar-fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, var(--blue), var(--green)); transition: width 0.5s ease; }
+
+    .feedback { padding: 16px; border-top: 1px solid rgba(95, 180, 255, 0.18); }
+    .feedback h3, .history h3 { margin: 0 0 12px; font-size: 17px; }
+    .feedback-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+    .feedback-list li {
+      padding: 12px; background: rgba(255, 255, 255, 0.045);
+      border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 15px;
+      color: #dceeff; line-height: 1.5; font-size: 14px;
+    }
+
+    .history { margin-top: 16px; padding: 16px; }
+    .history-list { display: grid; gap: 10px; }
+    .history-item {
+      display: grid; grid-template-columns: 74px 1fr; gap: 12px; align-items: center;
+      padding: 13px; border-radius: 17px; background: rgba(255, 255, 255, 0.045);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .history-score { font-size: 26px; font-weight: 900; color: var(--cyan); }
+    .history-meta { color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+    .empty { color: var(--muted); font-size: 14px; padding: 12px; border-radius: 14px; border: 1px dashed rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.03); }
+    .footer-note { color: var(--muted); text-align: center; font-size: 12px; padding: 22px 10px 8px; }
+
+    @media (min-width: 900px) {
+      .app { padding: 28px; }
+      .layout { grid-template-columns: 1.12fr 0.88fr; align-items: start; }
+      .controls { grid-template-columns: repeat(4, 1fr); }
+      .camera-box { min-height: 520px; }
+      canvas { height: 460px; }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="app">
+    <section class="hero">
+      <div class="badge">
+        <span class="badge-dot"></span>
+        AI 骨架分析版｜MediaPipe Pose
+      </div>
+      <h1>Taekwondo AI Coach</h1>
+      <p class="subtitle">橫踢動作即時骨架分析（33 點關鍵點 + 真實角度計算）</p>
+    </section>
+
+    <section class="layout">
+      <!-- 攝影機 / 骨架區 -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">攝影機畫面區</h2>
+          <div class="status warn" id="cameraStatus">尚未開啟攝影機</div>
+        </div>
+
+        <div class="camera-box">
+          <div class="camera-label" id="cameraLabel">AI 骨架偵測</div>
+
+          <video id="video" playsinline muted></video>
+          <canvas id="poseCanvas" width="640" height="480"></canvas>
+
+          <div class="rec-overlay" id="recOverlay">
+            <div class="rec-count" id="recCount">3</div>
+            <div class="rec-text" id="recText">準備…</div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button class="btn-camera" id="cameraBtn">開啟攝影機</button>
+          <button class="btn-analyze" id="analyzeBtn" disabled>分析橫踢</button>
+          <button class="btn-reset" id="resetBtn">重設</button>
+          <button class="btn-export" id="exportBtn">匯出本次結果</button>
+        </div>
+      </section>
+
+      <!-- 評分區 -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">AI 評分卡</h2>
+          <div class="status">100 分制</div>
+        </div>
+
+        <div class="score-panel">
+          <div class="total-score">
+            <div class="score-circle">
+              <div class="score-number" id="totalScore">--</div>
+            </div>
+
+            <div class="score-copy">
+              <h2>總分</h2>
+              <p id="totalCopy">
+                開啟攝影機並站到鏡頭前（建議側面拍攝、全身入鏡），
+                按「分析橫踢」後系統會錄製約 2 秒動作，
+                自動抓取關鍵影格並用真實骨架角度評分。
+              </p>
+            </div>
+          </div>
+
+          <div id="metrics"></div>
+        </div>
+
+        <div class="feedback">
+          <h3>AI 教練回饋</h3>
+          <ul class="feedback-list" id="feedbackList">
+            <li>尚未分析。請先開啟攝影機，再按「分析橫踢」。</li>
+          </ul>
+        </div>
+      </section>
+    </section>
+
+    <!-- 最近 3 次紀錄 -->
+    <section class="card history">
+      <h3>最近 3 次分析結果</h3>
+      <div class="history-list" id="historyList">
+        <div class="empty">目前尚無分析紀錄。</div>
+      </div>
+    </section>
+
+    <div class="footer-note">
+      Taekwondo AI Coach｜純前端 + MediaPipe Pose｜骨架資料只在你的裝置上運算，不上傳
+    </div>
+  </main>
+
+  <script>
+    /* ==========================================================
+       Taekwondo AI Coach — 真實骨架分析版
+       1. MediaPipe Pose 取得 33 個關鍵點
+       2. 「分析橫踢」錄製約 2.2 秒動作
+       3. 自動判斷踢擊腳，取「收膝最高」與「出腿最高」關鍵影格
+       4. 以真實角度 / 位置計算 6 項分數（非亂數）
+       5. 歷史紀錄存 localStorage
+    ========================================================== */
+
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("poseCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const cameraBtn = document.getElementById("cameraBtn");
+    const analyzeBtn = document.getElementById("analyzeBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const exportBtn = document.getElementById("exportBtn");
+
+    const cameraStatus = document.getElementById("cameraStatus");
+    const cameraLabel = document.getElementById("cameraLabel");
+    const totalScoreEl = document.getElementById("totalScore");
+    const totalCopy = document.getElementById("totalCopy");
+    const metricsEl = document.getElementById("metrics");
+    const feedbackList = document.getElementById("feedbackList");
+    const historyList = document.getElementById("historyList");
+
+    const recOverlay = document.getElementById("recOverlay");
+    const recCount = document.getElementById("recCount");
+    const recText = document.getElementById("recText");
+
+    const metricNames = ["收膝高度", "髖部旋轉", "膝蓋伸展", "支撐腳旋轉", "身體平衡", "收腳速度"];
+
+    // MediaPipe Pose 33 點索引
+    const LM = {
+      nose: 0,
+      shoulderL: 11, shoulderR: 12,
+      elbowL: 13, elbowR: 14,
+      wristL: 15, wristR: 16,
+      hipL: 23, hipR: 24,
+      kneeL: 25, kneeR: 26,
+      ankleL: 27, ankleR: 28,
+      heelL: 29, heelR: 30,
+      footL: 31, footR: 32
+    };
+
+    const RECORD_MS = 2200;          // 錄製時長
+    const STORE_KEY = "tkd_ai_coach_history";
+    let ASPECT = 640 / 480;          // x/y 比例校正（鏡頭實際比例載入後更新）
+
+    let pose = null;
+    let camera = null;
+    let cameraOn = false;
+    let poseReady = false;
+    let latestLandmarks = null;
+
+    let recording = false;
+    let recordedFrames = [];
+
+    let currentResult = null;
+    let history = loadHistory();
+
+    /* ---------- 幾何小工具（已做 x/y 比例校正） ---------- */
+    function P(lm, idx) { return { x: lm[idx].x * ASPECT, y: lm[idx].y, v: lm[idx].visibility ?? 1, z: lm[idx].z ?? 0 }; }
+    function mid(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+    function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+    // b 點的夾角（a-b-c），回傳角度
+    function angleAt(a, b, c) {
+      const v1 = { x: a.x - b.x, y: a.y - b.y };
+      const v2 = { x: c.x - b.x, y: c.y - b.y };
+      const dot = v1.x * v2.x + v1.y * v2.y;
+      const m = Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y) || 1e-6;
+      return Math.acos(Math.max(-1, Math.min(1, dot / m))) * 180 / Math.PI;
+    }
+    // 線性映射並 clamp 到 [40, 99]
+    function mapScore(v, inLo, inHi, outLo, outHi) {
+      let t = (v - inLo) / (inHi - inLo);
+      t = Math.max(0, Math.min(1, t));
+      return Math.round(Math.max(40, Math.min(99, outLo + t * (outHi - outLo))));
+    }
+
+    /* ---------- 評分條初始化 ---------- */
+    function initMetrics() {
+      metricsEl.innerHTML = "";
+      metricNames.forEach(name => {
+        const m = document.createElement("div");
+        m.className = "metric";
+        m.innerHTML = `
+          <div class="metric-top">
+            <span>${name}</span>
+            <strong id="score-${name}">--</strong>
+          </div>
+          <div class="bar"><div class="bar-fill" id="bar-${name}"></div></div>`;
+        metricsEl.appendChild(m);
+      });
+    }
+
+    /* ---------- 待機示意骨架（攝影機未開時） ---------- */
+    function drawIdleSkeleton() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const g = ctx.createRadialGradient(320, 240, 20, 320, 240, 280);
+      g.addColorStop(0, "rgba(76, 201, 240, 0.18)");
+      g.addColorStop(1, "rgba(76, 201, 240, 0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const pts = {
+        head: [300, 90], neck: [300, 140], shL: [255, 165], shR: [345, 165],
+        elL: [225, 215], elR: [375, 210], haL: [205, 255], haR: [395, 245],
+        hipL: [270, 270], hipR: [340, 265], kneeS: [255, 360], footS: [240, 440],
+        kneeK: [430, 250], footK: [550, 215]
+      };
+      const lc = "#72f7ff", pc = "#4cc9f0";
+      const line = (a, b) => {
+        ctx.beginPath(); ctx.moveTo(pts[a][0], pts[a][1]); ctx.lineTo(pts[b][0], pts[b][1]);
+        ctx.strokeStyle = lc; ctx.lineWidth = 5; ctx.lineCap = "round";
+        ctx.shadowColor = lc; ctx.shadowBlur = 12; ctx.stroke(); ctx.shadowBlur = 0;
+      };
+      [["head","neck"],["neck","shL"],["neck","shR"],["shL","elL"],["elL","haL"],
+       ["shR","elR"],["elR","haR"],["neck","hipL"],["neck","hipR"],["hipL","kneeS"],
+       ["kneeS","footS"],["hipR","kneeK"],["kneeK","footK"],["hipL","hipR"]].forEach(p => line(...p));
+      Object.values(pts).forEach(([x, y]) => {
+        ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = pc; ctx.shadowColor = pc; ctx.shadowBlur = 16; ctx.fill(); ctx.shadowBlur = 0;
+      });
+      ctx.beginPath(); ctx.arc(pts.head[0], pts.head[1], 24, 0, Math.PI * 2);
+      ctx.strokeStyle = lc; ctx.lineWidth = 5; ctx.stroke();
+      ctx.fillStyle = "#72f7ff"; ctx.font = "bold 18px Microsoft JhengHei";
+      ctx.fillText("Pose Detection（請開啟攝影機）", 150, 50);
+    }
+
+    /* ---------- MediaPipe 初始化 ---------- */
+    function setupPose() {
+      pose = new Pose({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
+      pose.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        enableSegmentation: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+      pose.onResults(onPoseResults);
+    }
+
+    function onPoseResults(results) {
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (results.image) ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+      const lm = results.poseLandmarks;
+      latestLandmarks = lm || null;
+
+      if (lm) {
+        // 連線與關鍵點（錄製中改成綠色）
+        const c = recording ? "#55efc4" : "#72f7ff";
+        if (window.drawConnectors && window.POSE_CONNECTIONS) {
+          drawConnectors(ctx, lm, POSE_CONNECTIONS, { color: c, lineWidth: 4 });
+          drawLandmarks(ctx, lm, { color: "#ffd166", lineWidth: 1, radius: 4 });
+        }
+        if (recording) {
+          recordedFrames.push({
+            t: performance.now(),
+            lm: lm.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility }))
+          });
+        }
+      } else {
+        ctx.fillStyle = "rgba(255,107,107,0.9)";
+        ctx.font = "bold 18px Microsoft JhengHei";
+        ctx.fillText("偵測不到人體，請站到鏡頭前、全身入鏡", 70, 40);
+      }
+      ctx.restore();
+    }
+
+    /* ---------- 開啟攝影機 ---------- */
+    async function openCamera() {
+      if (typeof Pose === "undefined" || typeof Camera === "undefined") {
+        setStatus("warn", "AI 元件載入失敗（請檢查網路）");
+        alert("MediaPipe 載入失敗，請確認有連上網路後重新整理頁面。");
+        return;
+      }
+      try {
+        setStatus("busy", "AI 模型載入中…");
+        cameraBtn.disabled = true;
+        if (!pose) setupPose();
+
+        camera = new Camera(video, {
+          onFrame: async () => { await pose.send({ image: video }); },
+          width: 640,
+          height: 480,
+          facingMode: "environment"   // 優先使用後鏡頭（手機）；桌機自動回退前鏡頭
+        });
+        await camera.start();
+
+        // 依實際畫面比例校正 x/y
+        if (video.videoWidth && video.videoHeight) {
+          ASPECT = video.videoWidth / video.videoHeight;
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+        }
+
+        cameraOn = true;
+        poseReady = true;
+        analyzeBtn.disabled = false;
+        cameraBtn.textContent = "攝影機已開啟";
+        setStatus("ok", "攝影機運作中");
+        cameraLabel.textContent = "Live Camera + AI 骨架";
+      } catch (err) {
+        cameraBtn.disabled = false;
+        setStatus("warn", "無法開啟攝影機");
+        cameraLabel.textContent = "請允許攝影機權限";
+        alert("無法開啟攝影機，可能是瀏覽器權限未允許，或非 https/localhost 環境。");
+        console.error(err);
+      }
+    }
+
+    function setStatus(kind, text) {
+      cameraStatus.className = "status" + (kind === "ok" ? "" : " " + kind);
+      cameraStatus.textContent = text;
+    }
+
+    /* ---------- 分析流程：倒數 → 錄製 → 計算 ---------- */
+    function startAnalyze() {
+      if (!cameraOn || !poseReady) {
+        alert("請先開啟攝影機並站到鏡頭前，再按分析橫踢。");
+        return;
+      }
+      analyzeBtn.disabled = true;
+      let n = 3;
+      recOverlay.classList.add("show");
+      recCount.textContent = n;
+      recText.textContent = "準備…站好預備姿勢";
+
+      const tick = setInterval(() => {
+        n--;
+        if (n > 0) {
+          recCount.textContent = n;
+        } else {
+          clearInterval(tick);
+          beginRecording();
+        }
+      }, 800);
+    }
+
+    function beginRecording() {
+      recordedFrames = [];
+      recording = true;
+      recCount.innerHTML = '<span class="rec-dot"></span>';
+      recText.textContent = "錄製中…現在請踢一次橫踢！";
+
+      setTimeout(() => {
+        recording = false;
+        recOverlay.classList.remove("show");
+        analyzeBtn.disabled = false;
+        finishAnalyze();
+      }, RECORD_MS);
+    }
+
+    function finishAnalyze() {
+      const frames = recordedFrames.filter(f => f.lm);
+      if (frames.length < 6) {
+        feedbackList.innerHTML = `<li>這次錄到的有效影格太少（${frames.length} 格），偵測不到完整動作。請確認全身入鏡、光線充足後再試。</li>`;
+        return;
+      }
+      const result = computeMetrics(frames);
+      if (!result) {
+        feedbackList.innerHTML = `<li>無法判斷踢擊腳。請確保鏡頭能看到雙腿與髖部，並做出明顯的橫踢動作。</li>`;
+        return;
+      }
+      currentResult = result;
+      updateScoreUI(result);
+      updateFeedback(result);
+      pushHistory(result);
+    }
+
+    /* ---------- 核心：真實角度計算 ---------- */
+    function computeMetrics(frames) {
+      // 用可見度過濾：取每隻腳踝在所有影格的最高點（y 最小）
+      let minYL = 1e9, minYR = 1e9;
+      frames.forEach(f => {
+        const aL = f.lm[LM.ankleL], aR = f.lm[LM.ankleR];
+        if ((aL.visibility ?? 1) > 0.3) minYL = Math.min(minYL, aL.y);
+        if ((aR.visibility ?? 1) > 0.3) minYR = Math.min(minYR, aR.y);
+      });
+      if (minYL === 1e9 && minYR === 1e9) return null;
+
+      // 踢擊腳 = 腳踝抬得最高（y 最小）那隻
+      const kickIsLeft = minYL <= minYR;
+      const K = kickIsLeft
+        ? { hip: LM.hipL, knee: LM.kneeL, ankle: LM.ankleL, heel: LM.heelL, foot: LM.footL }
+        : { hip: LM.hipR, knee: LM.kneeR, ankle: LM.ankleR, heel: LM.heelR, foot: LM.footR };
+      const S = kickIsLeft   // 支撐腳
+        ? { hip: LM.hipR, knee: LM.kneeR, ankle: LM.ankleR, heel: LM.heelR, foot: LM.footR }
+        : { hip: LM.hipL, knee: LM.kneeL, ankle: LM.ankleL, heel: LM.heelL, foot: LM.footL };
+
+      // 關鍵影格：收膝最高（膝 y 最小）、出腿最高（踝 y 最小）
+      let chamberIdx = 0, chamberY = 1e9, peakIdx = 0, peakY = 1e9;
+      frames.forEach((f, i) => {
+        const ky = f.lm[K.knee].y, ay = f.lm[K.ankle].y;
+        if (ky < chamberY) { chamberY = ky; chamberIdx = i; }
+        if (ay < peakY) { peakY = ay; peakIdx = i; }
+      });
+
+      const fc = frames[chamberIdx].lm;
+      const fp = frames[peakIdx].lm;
+
+      // 軀幹長度（尺度標準化用）
+      const shC = mid(P(fp, LM.shoulderL), P(fp, LM.shoulderR));
+      const hipC = mid(P(fp, LM.hipL), P(fp, LM.hipR));
+      const torso = Math.max(1e-3, dist(shC, hipC));
+
+      const scores = {};
+
+      // 1. 收膝高度：收膝影格中，踢擊膝相對髖中心抬升量 / 軀幹
+      const hipC_c = mid(P(fc, LM.hipL), P(fc, LM.hipR));
+      const kneeUp = (hipC_c.y - P(fc, K.knee).y) / torso;   // 膝高於髖為正
+      scores["收膝高度"] = mapScore(kneeUp, -0.35, 0.45, 52, 98);
+
+      // 2. 髖部旋轉：左右髖深度（z）差 / 髖寬，越大代表轉體越多
+      const hipWidth = Math.max(1e-3, dist(P(fp, LM.hipL), P(fp, LM.hipR)));
+      const hipRot = Math.abs((fp[LM.hipL].z ?? 0) - (fp[LM.hipR].z ?? 0)) / hipWidth;
+      scores["髖部旋轉"] = mapScore(hipRot, 0.05, 0.9, 55, 96);
+
+      // 3. 膝蓋伸展：出腿影格 髖-膝-踝 夾角（越接近 180 越伸展）
+      const kneeExt = angleAt(P(fp, K.hip), P(fp, K.knee), P(fp, K.ankle));
+      scores["膝蓋伸展"] = mapScore(kneeExt, 95, 178, 52, 98);
+
+      // 4. 支撐腳旋轉：支撐腳腳掌方向偏轉程度（腳尖橫向位移 / 腳長）
+      const heel = P(fp, S.heel), toe = P(fp, S.foot);
+      const footLen = Math.max(1e-3, dist(heel, toe));
+      const turn = Math.abs(toe.x - heel.x) / footLen;   // 偏橫向 = 有旋轉
+      scores["支撐腳旋轉"] = mapScore(turn, 0.1, 0.85, 58, 95);
+
+      // 5. 身體平衡：肩中心、髖中心是否落在支撐腳踝的垂直線上
+      const supAnkle = P(fp, S.ankle);
+      const dev = (Math.abs(shC.x - supAnkle.x) + Math.abs(hipC.x - supAnkle.x)) / torso;
+      scores["身體平衡"] = mapScore(dev, 0.15, 1.1, 96, 52);   // 偏移越小分數越高（反向）
+
+      // 6. 收腳速度：出腿後踢擊腳踝回收的最大速度（軀幹/秒）
+      let maxSpeed = 0;
+      for (let i = peakIdx + 1; i < frames.length; i++) {
+        const dt = (frames[i].t - frames[i - 1].t) / 1000;
+        if (dt <= 0) continue;
+        const a0 = P(frames[i - 1].lm, K.ankle), a1 = P(frames[i].lm, K.ankle);
+        const sp = dist(a0, a1) / torso / dt;
+        if (sp > maxSpeed) maxSpeed = sp;
+      }
+      scores["收腳速度"] = (peakIdx >= frames.length - 2)
+        ? 72   // 出腿落在錄製尾端、沒拍到回收 → 給中性分
+        : mapScore(maxSpeed, 0.6, 4.5, 55, 97);
+
+      const total = Math.round(metricNames.reduce((s, n) => s + scores[n], 0) / metricNames.length);
+
+      return {
+        total,
+        scores,
+        kickLeg: kickIsLeft ? "左腳" : "右腳",
+        frames: frames.length,
+        kneeExtDeg: Math.round(kneeExt),
+        time: new Date().toLocaleString("zh-TW")
+      };
+    }
+
+    /* ---------- 更新分數畫面 ---------- */
+    function updateScoreUI(result) {
+      totalScoreEl.textContent = result.total;
+      metricNames.forEach(name => {
+        document.getElementById(`score-${name}`).textContent = result.scores[name];
+        document.getElementById(`bar-${name}`).style.width = `${result.scores[name]}%`;
+      });
+      totalCopy.textContent = `偵測到以「${result.kickLeg}」橫踢（取樣 ${result.frames} 影格，出腿膝角約 ${result.kneeExtDeg}°）。分數由真實骨架角度計算。`;
+    }
+
+    /* ---------- AI 教練回饋（依真實分數） ---------- */
+    function updateFeedback(result) {
+      const fb = [];
+      fb.push(`本次偵測為「${result.kickLeg}」橫踢，出腿時膝關節角度約 ${result.kneeExtDeg}°。`);
+
+      if (result.scores["收膝高度"] < 75) fb.push("收膝高度不足，建議練習抬膝定格 3 秒，把膝蓋帶到腰線以上再出腿。");
+      else fb.push("收膝高度良好，已具備高位橫踢的出腿條件。");
+
+      if (result.scores["髖部旋轉"] < 75) fb.push("髖部旋轉偏少，橫踢力量會被卡住，記得用髖帶動而不是只甩小腿。");
+      else fb.push("髖部旋轉充分，力量傳遞表現不錯。");
+
+      if (result.scores["膝蓋伸展"] < 75) fb.push("出腿時膝蓋伸展不夠完全，攻擊距離與力量會打折。");
+
+      if (result.scores["支撐腳旋轉"] < 75) fb.push("支撐腳旋轉不足，容易讓膝蓋承受扭力，記得腳跟轉向目標。");
+
+      if (result.scores["身體平衡"] < 75) fb.push("出腿瞬間身體重心偏移，建議加強核心穩定與支撐腳站位。");
+
+      if (result.scores["收腳速度"] < 75) fb.push("收腳偏慢，踢完要快速把腳收回預備位，避免被反擊。");
+
+      if (result.total >= 88) fb.push("整體接近比賽水準，可加入移動中出腿與連續攻擊訓練。");
+      else if (result.total >= 78) fb.push("動作穩定，下一步加強速度與連續性。");
+      else fb.push("建議先放慢速度，依序修正「抬膝 → 轉髖 → 支撐腳旋轉」三個重點。");
+
+      feedbackList.innerHTML = fb.map(t => `<li>${t}</li>`).join("");
+    }
+
+    /* ---------- 歷史紀錄（localStorage） ---------- */
+    function loadHistory() {
+      try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+      catch (e) { return []; }
+    }
+    function saveHistory() {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(history)); } catch (e) {}
+    }
+    function pushHistory(result) {
+      history.unshift(result);
+      history = history.slice(0, 3);
+      saveHistory();
+      renderHistory();
+    }
+    function renderHistory() {
+      if (history.length === 0) {
+        historyList.innerHTML = `<div class="empty">目前尚無分析紀錄。</div>`;
+        return;
+      }
+      historyList.innerHTML = history.map((item, i) => `
+        <div class="history-item">
+          <div class="history-score">${item.total}</div>
+          <div class="history-meta">
+            第 ${i + 1} 次紀錄（${item.kickLeg || "—"}）<br>
+            ${item.time}<br>
+            收膝 ${item.scores["收膝高度"]}｜轉髖 ${item.scores["髖部旋轉"]}｜平衡 ${item.scores["身體平衡"]}
+          </div>
+        </div>`).join("");
+    }
+
+    /* ---------- 重設 ---------- */
+    function resetDemo() {
+      currentResult = null;
+      totalScoreEl.textContent = "--";
+      metricNames.forEach(name => {
+        document.getElementById(`score-${name}`).textContent = "--";
+        document.getElementById(`bar-${name}`).style.width = "0%";
+      });
+      feedbackList.innerHTML = `<li>尚未分析。請先開啟攝影機，再按「分析橫踢」。</li>`;
+      totalCopy.textContent = "開啟攝影機並站到鏡頭前（建議側面拍攝、全身入鏡），按「分析橫踢」開始錄製評分。";
+      if (!cameraOn) drawIdleSkeleton();
+    }
+
+    /* ---------- 匯出 ---------- */
+    function exportResult() {
+      if (!currentResult) { alert("尚未有分析結果，請先完成一次分析。"); return; }
+      const lines = [
+        "Taekwondo AI Coach — 橫踢骨架分析結果",
+        "----------------------------",
+        `分析時間：${currentResult.time}`,
+        `踢擊腳：${currentResult.kickLeg}　取樣影格：${currentResult.frames}　出腿膝角：${currentResult.kneeExtDeg}°`,
+        `總分：${currentResult.total}`,
+        "",
+        "細項分數：",
+        ...metricNames.map(n => `${n}：${currentResult.scores[n]}`),
+        "",
+        "AI 教練回饋：",
+        ...Array.from(feedbackList.querySelectorAll("li")).map(li => `- ${li.textContent}`)
+      ];
+      const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "taekwondo-ai-coach-result.txt"; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    /* ---------- 綁定 & 初始化 ---------- */
+    cameraBtn.addEventListener("click", openCamera);
+    analyzeBtn.addEventListener("click", startAnalyze);
+    resetBtn.addEventListener("click", resetDemo);
+    exportBtn.addEventListener("click", exportResult);
+
+    initMetrics();
+    drawIdleSkeleton();
+    renderHistory();
+  </script>
+</body>
+</html>
