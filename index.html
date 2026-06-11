@@ -266,6 +266,7 @@
       <button class="tab-btn active" id="tabBtnKick" data-tab="kick">橫踢分析</button>
       <button class="tab-btn" id="tabBtnPoomsae" data-tab="poomsae">動作錄製</button>
       <button class="tab-btn" id="tabBtnCompare" data-tab="compare">範本對照</button>
+      <button class="tab-btn" id="tabBtnScore" data-tab="score">自動評分</button>
     </div>
 
     <!-- 分頁：橫踢分析（原功能，未更動） -->
@@ -483,6 +484,52 @@
         <div class="cap-bar">綠線＝你設的標準範本，紅線＝對照來源（即時鏡頭或另一筆錄製）。兩者都以髖中心對齊、軀幹長縮放，所以不受身高/站位影響，純看姿勢差異。</div>
       </section>
     </div><!-- /tab-compare -->
+
+    <!-- 分頁：自動評分（定式對齊 + DTW） -->
+    <div id="tab-score" class="tab-panel" hidden>
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">自動評分（定式對齊 + DTW）</h2>
+          <div class="status" id="scoreStatus">選範本與學員錄製後評分</div>
+        </div>
+
+        <div class="pm-form" style="border-top:none">
+          <div class="row">
+            <label style="flex:1">標準範本
+              <select id="scoreTplSel"></select>
+            </label>
+            <label style="flex:1">學員錄製
+              <select id="scoreStuSel"></select>
+            </label>
+          </div>
+          <div class="row">
+            <button class="btn-analyze" id="scoreRunBtn" style="flex:2">開始自動評分</button>
+            <button class="muted-btn" id="scoreRefreshBtn" style="flex:1">重新整理</button>
+          </div>
+        </div>
+
+        <div class="score-panel">
+          <div class="total-score">
+            <div class="score-circle"><div class="score-number" id="scoreTotal">--</div></div>
+            <div class="score-copy">
+              <h2>總分</h2>
+              <p id="scoreCopy">選一個標準範本＋一筆學員錄製，按「開始自動評分」。系統會用 DTW 對齊兩段時間軸（容忍速度不同），偵測定式並逐項打分。</p>
+            </div>
+          </div>
+          <div id="scoreMetrics"></div>
+        </div>
+
+        <div class="feedback">
+          <h3>AI 教練回饋</h3>
+          <ul class="feedback-list" id="scoreFeedback"><li>尚未評分。</li></ul>
+        </div>
+
+        <div class="feedback" style="border-top:1px solid rgba(95,180,255,.18)">
+          <h3>逐定式明細</h3>
+          <div id="scoreStances"><div class="empty">尚未評分。</div></div>
+        </div>
+      </section>
+    </div><!-- /tab-score -->
 
     <div class="footer-note">
       Taekwondo AI Coach｜純前端 + MediaPipe Pose｜骨架資料只在你的裝置上運算，不上傳
@@ -1400,16 +1447,18 @@
     /* ---------- 分頁切換 ---------- */
     function setTab(name) {
       currentTab = name;
-      ["kick", "poomsae", "compare"].forEach(t => {
+      ["kick", "poomsae", "compare", "score"].forEach(t => {
         const panel = document.getElementById("tab-" + t);
         if (panel) panel.hidden = (t !== name);
       });
       document.getElementById("tabBtnKick").classList.toggle("active", name === "kick");
       document.getElementById("tabBtnPoomsae").classList.toggle("active", name === "poomsae");
       document.getElementById("tabBtnCompare").classList.toggle("active", name === "compare");
+      document.getElementById("tabBtnScore").classList.toggle("active", name === "score");
       if (name !== "compare") cancelAnimationFrame(cmp.raf);
       if (name === "poomsae") { refreshPmList(); if (!cameraOn) drawPoomsaeIdle(); updatePmCameraUI(); }
       if (name === "compare") { refreshCmpSelects(); }
+      if (name === "score") { refreshScoreSelects(); }
     }
 
     // 品勢分頁綁定
@@ -1594,6 +1643,188 @@
     cmpSpeed.addEventListener("click", cmpCycleSpeed);
     cmpStop.addEventListener("click", cmpStopFn);
     cmpResetBest.addEventListener("click", () => { cmp.best = 0; });
+
+    /* ==========================================================
+       自動評分：定式偵測 + DTW 時間對齊 + 逐項打分
+       - 兩段(標準/學員)各重採樣到固定長度 → 正規化關節點
+       - DTW 對齊(容忍速度差) → 平均距離 = 動作準確度
+       - 偵測定式(速度低谷) → 經 DTW 路徑對到學員 → 定式到位
+       - 路徑彎曲度 = 節奏一致；學員 summary 回原點誤差 = 回正
+    ========================================================== */
+    const SCORE_DIMS = ["動作準確度", "定式到位", "節奏一致", "回正(回原點)"];
+    const KEY_JOINTS = [11,12,13,14,15,16,23,24,25,26,27,28]; // 肩肘腕髖膝踝
+    const SCORE_N = 150;     // 重採樣長度
+
+    const scoreTplSel = document.getElementById("scoreTplSel");
+    const scoreStuSel = document.getElementById("scoreStuSel");
+    const scoreRunBtn = document.getElementById("scoreRunBtn");
+    const scoreRefreshBtn = document.getElementById("scoreRefreshBtn");
+    const scoreStatus = document.getElementById("scoreStatus");
+    const scoreTotalEl = document.getElementById("scoreTotal");
+    const scoreCopy = document.getElementById("scoreCopy");
+    const scoreMetricsEl = document.getElementById("scoreMetrics");
+    const scoreFeedback = document.getElementById("scoreFeedback");
+    const scoreStancesEl = document.getElementById("scoreStances");
+
+    function clampPct(v){ return Math.max(0, Math.min(100, Math.round(v))); }
+    // dist<=good → 100；dist>=bad → 40；中間線性
+    function mapPct(dist, good, bad){
+      if(dist<=good) return 100;
+      if(dist>=bad) return 40;
+      return clampPct(100 - (dist-good)/(bad-good)*60);
+    }
+    // packed lm → 正規化關節點(髖中心原點、軀幹長為單位、x 乘 ASPECT)
+    function scoreNormPoints(lm){
+      const hx=(lm[23][0]+lm[24][0])/2, hy=(lm[23][1]+lm[24][1])/2;
+      const sx=(lm[11][0]+lm[12][0])/2, sy=(lm[11][1]+lm[12][1])/2;
+      const torso = Math.hypot((sx-hx)*ASPECT, sy-hy) || 1e-3;
+      const out = {};
+      KEY_JOINTS.forEach(i => { out[i] = {
+        x: ((lm[i][0]-hx)*ASPECT)/torso, y: (lm[i][1]-hy)/torso, v: (lm[i][3]==null?1:lm[i][3])
+      }; });
+      return out;
+    }
+    function scoreFrameDist(A, B){
+      let s=0, n=0;
+      KEY_JOINTS.forEach(i => { if((A[i].v??1)<0.3 || (B[i].v??1)<0.3) return; s += Math.hypot(A[i].x-B[i].x, A[i].y-B[i].y); n++; });
+      return n ? s/n : 2;
+    }
+    // 依時間均勻重採樣到 N 格（取最接近時間的那格）
+    function scoreResample(frames, N){
+      const dur = frames[frames.length-1].t || 1, out=[];
+      for(let k=0;k<N;k++){ const tt = dur*k/(N-1); let i=0; while(i<frames.length-1 && frames[i+1].t<=tt) i++; out.push(frames[i]); }
+      return out;
+    }
+    // DTW，回傳 {dist, path, meanDist}
+    function scoreDTW(A, B){
+      const n=A.length, m=B.length, INF=1e12;
+      const D = Array.from({length:n+1}, ()=> new Float64Array(m+1).fill(INF));
+      D[0][0]=0;
+      for(let i=1;i<=n;i++) for(let j=1;j<=m;j++){
+        const c = scoreFrameDist(A[i-1], B[j-1]);
+        D[i][j] = c + Math.min(D[i-1][j], D[i][j-1], D[i-1][j-1]);
+      }
+      let i=n, j=m, path=[];
+      while(i>0 && j>0){ path.push([i-1,j-1]); const a=D[i-1][j], b=D[i][j-1], c=D[i-1][j-1];
+        if(c<=a && c<=b){i--;j--;} else if(a<=b){i--;} else {j--;} }
+      path.reverse();
+      return { dist:D[n][m], path, meanDist:D[n][m]/Math.max(1,path.length) };
+    }
+    // 定式偵測：速度低谷（局部極小且低於門檻），合併相鄰
+    function scoreDetectStances(P){
+      const vel = P.map((p,i)=> i===0?0:scoreFrameDist(P[i-1], p));
+      const mean = vel.reduce((a,b)=>a+b,0)/Math.max(1,vel.length);
+      const thr = mean*0.6, win = Math.max(3, Math.floor(P.length*0.05));
+      let raw=[];
+      for(let i=2;i<vel.length-2;i++){ if(vel[i]<thr && vel[i]<=vel[i-1] && vel[i]<=vel[i+1]) raw.push(i); }
+      const merged=[]; raw.forEach(i=>{ if(!merged.length || i-merged[merged.length-1]>win) merged.push(i); });
+      if(merged.length===0){ for(let k=1;k<=6;k++) merged.push(Math.round(P.length*k/7)); } // 找不到 → 平均取點
+      return merged.slice(0, 14);
+    }
+
+    async function refreshScoreSelects(){
+      let metas=[]; try{ metas=await dbListMeta(); }catch(_){}
+      metas.sort((a,b)=> (Number(b.meta.isTemplate)-Number(a.meta.isTemplate)) || (b.meta.createdAt||"").localeCompare(a.meta.createdAt||""));
+      const opt = m => `<option value="${m.id}">${esc(m.meta.name||"未命名")}${m.meta.isTemplate?"（標準）":""}</option>`;
+      scoreTplSel.innerHTML = metas.length ? metas.map(opt).join("") : `<option value="">（尚無錄製）</option>`;
+      scoreStuSel.innerHTML = metas.length ? metas.map(opt).join("") : `<option value="">（尚無錄製）</option>`;
+      if(metas.length>1) scoreStuSel.selectedIndex = 1;  // 預設學員選第二筆，避免跟標準同一筆
+    }
+
+    function initScoreMetrics(){
+      scoreMetricsEl.innerHTML = SCORE_DIMS.map(name => `
+        <div class="metric">
+          <div class="metric-top"><span>${name}</span><strong id="sm-${name}">--</strong></div>
+          <div class="bar"><div class="bar-fill" id="sb-${name}"></div></div>
+        </div>`).join("");
+    }
+
+    async function runAutoScore(){
+      const tid = scoreTplSel.value, sid = scoreStuSel.value;
+      if(!tid || !sid){ alert("請先有錄製，並選擇標準範本與學員錄製。"); return; }
+      if(tid===sid){ if(!confirm("標準與學員選了同一筆，分數會接近滿分。仍要繼續嗎？")) return; }
+      scoreStatus.textContent = "評分中…"; scoreRunBtn.disabled = true;
+      try{
+        const tpl = await dbGetFull(tid), stu = await dbGetFull(sid);
+        if(!tpl?.frames?.length || !stu?.frames?.length){ alert("有一筆缺少骨架資料。"); return; }
+
+        const tF = scoreResample(tpl.frames, SCORE_N), sF = scoreResample(stu.frames, SCORE_N);
+        const tP = tF.map(f=>scoreNormPoints(f.lm)), sP = sF.map(f=>scoreNormPoints(f.lm));
+        const dtw = scoreDTW(tP, sP);
+
+        // 1) 動作準確度
+        const accuracy = mapPct(dtw.meanDist, 0.06, 0.5);
+
+        // 2) 定式到位（標準定式 → DTW 路徑對到學員）
+        const tpl2stu = new Array(SCORE_N).fill(null);
+        dtw.path.forEach(([i,j])=>{ if(tpl2stu[i]==null) tpl2stu[i]=j; else tpl2stu[i]=Math.max(tpl2stu[i], j); });
+        for(let i=0;i<SCORE_N;i++){ if(tpl2stu[i]==null) tpl2stu[i] = i; }
+        const stances = scoreDetectStances(tP);
+        const stanceRows = stances.map(i=>{
+          const j = tpl2stu[i];
+          const d = scoreFrameDist(tP[i], sP[j]);
+          return { i, j, score: mapPct(d, 0.06, 0.55), tTime: tF[i].t, sTime: sF[j].t };
+        });
+        const stanceAvg = stanceRows.length ? clampPct(stanceRows.reduce((a,r)=>a+r.score,0)/stanceRows.length) : accuracy;
+
+        // 3) 節奏一致（DTW 路徑越貼近對角線越好）
+        let warp=0; dtw.path.forEach(([i,j])=>{ warp += Math.abs(i/(SCORE_N-1) - j/(SCORE_N-1)); });
+        warp /= dtw.path.length;
+        const tempo = clampPct(100 - warp*260);
+
+        // 4) 回正（學員回原點誤差，越小越好）
+        const re = stu.summary?.displacement?.returnError;
+        const ret = (re==null) ? 75 : mapPct(re, 0.12, 0.6);
+
+        const total = clampPct(accuracy*0.4 + stanceAvg*0.3 + tempo*0.15 + ret*0.15);
+        renderScore(total, { "動作準確度":accuracy, "定式到位":stanceAvg, "節奏一致":tempo, "回正(回原點)":ret }, stanceRows, tpl, stu);
+        scoreStatus.textContent = "評分完成";
+      }catch(e){ console.error(e); alert("評分失敗：" + e); scoreStatus.textContent = "評分失敗"; }
+      finally{ scoreRunBtn.disabled = false; }
+    }
+
+    function renderScore(total, dims, stanceRows, tpl, stu){
+      scoreTotalEl.textContent = total;
+      SCORE_DIMS.forEach(name=>{
+        const v = clampPct(dims[name]);
+        document.getElementById("sm-"+name).textContent = v;
+        document.getElementById("sb-"+name).style.width = v + "%";
+      });
+      scoreCopy.textContent = `標準「${tpl.meta.name||"—"}」 vs 學員「${stu.meta.name||"—"}」，已用 DTW 對齊 ${SCORE_N} 取樣點，偵測 ${stanceRows.length} 個定式。`;
+
+      // 回饋：點出最弱面向 + 偏差大的定式
+      const fb = [];
+      const sorted = SCORE_DIMS.map(n=>({n, v:clampPct(dims[n])})).sort((a,b)=>a.v-b.v);
+      const tips = {
+        "動作準確度":"整體姿勢與標準差距較大，先放慢逐動作對照角度。",
+        "定式到位":"定式（亮相）瞬間沒到位，建議每個定式定格 3 秒檢查角度與重心。",
+        "節奏一致":"節奏與標準落差大（太快或忽快忽慢），跟著標準速度打一次。",
+        "回正(回原點)":"收式沒回到起點，注意走位與最後一步落點。"
+      };
+      if(total>=85) fb.push("整體完成度高，接近標準範本。");
+      else if(total>=70) fb.push("動作大致正確，再修細節即可。");
+      else fb.push("與標準仍有差距，建議分段慢練。");
+      fb.push(`最需加強：${sorted[0].n}（${sorted[0].v} 分）— ${tips[sorted[0].n]}`);
+      if(sorted[1].v<75) fb.push(`其次：${sorted[1].n}（${sorted[1].v} 分）— ${tips[sorted[1].n]}`);
+      const weak = stanceRows.filter(r=>r.score<70).slice(0,3);
+      if(weak.length) fb.push("偏差較大的定式：" + weak.map(r=>`第${stanceRows.indexOf(r)+1}個(${r.score}分)`).join("、"));
+      scoreFeedback.innerHTML = fb.map(t=>`<li>${esc(t)}</li>`).join("");
+
+      // 逐定式明細
+      if(!stanceRows.length){ scoreStancesEl.innerHTML = `<div class="empty">未偵測到定式。</div>`; return; }
+      scoreStancesEl.innerHTML = `<div class="rec-list" style="padding:0">` + stanceRows.map((r,idx)=>{
+        const col = r.score>=80?"var(--green)":r.score>=65?"var(--yellow)":"var(--red)";
+        return `<div class="history-item">
+          <div class="history-score" style="color:${col}">${r.score}</div>
+          <div class="history-meta">第 ${idx+1} 個定式<br>標準 ${(r.tTime/1000).toFixed(1)}s ↔ 學員 ${(r.sTime/1000).toFixed(1)}s</div>
+        </div>`;
+      }).join("") + `</div>`;
+    }
+
+    scoreRunBtn.addEventListener("click", runAutoScore);
+    scoreRefreshBtn.addEventListener("click", refreshScoreSelects);
+    document.getElementById("tabBtnScore").addEventListener("click", () => setTab("score"));
+    initScoreMetrics();
 
     /* ---------- 綁定 & 初始化 ---------- */
     cameraBtn.addEventListener("click", openCamera);
