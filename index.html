@@ -325,7 +325,7 @@ canvas.chart{width:100%;background:rgba(255,255,255,.02);border:1px solid var(--
 
     <!-- 五階段 -->
     <div class="card" id="stagesCard">
-      <div class="hd"><h2>🔬 橫踢五階段分析</h2></div>
+      <div class="hd"><h2 id="stagesTitle">🔬 橫踢五階段分析</h2></div>
       <div class="bd" id="stagesBox"><div class="empty">尚未分析。</div></div>
     </div>
 
@@ -418,7 +418,7 @@ const ACTIONS  = [
   {id:"front",name:"前踢",ready:false},
   {id:"axe",name:"下壓",ready:false},
   {id:"side",name:"側踢",ready:false},
-  {id:"spin",name:"旋踢",ready:false},
+  {id:"spin",name:"旋踢",ready:true},
   {id:"poomsae",name:"品勢基本動作",ready:false}
 ];
 const CAP_NAMES = ["提膝高度","轉髖角度","支撐腳旋轉","踢擊伸展","平衡回收"];   // 各 20 分
@@ -427,6 +427,86 @@ const STORE_KEY = "tkd_coach_history_v2";
 
 /* 標準示範基準（假資料，預留未來接柏鈞標準模型） */
 const STANDARD = { 提膝角度:115, 轉髖角度:48, 踢擊角度:168 };
+
+/* ---------- 動作設定檔：每種動作的五項能力 / 五階段 / 標準 / 回饋 / 處方 ----------
+   raw 六項原始分數(0-100)：收膝高度 髖部旋轉 膝蓋伸展 支撐腳旋轉 身體平衡 收腳速度
+   各動作沿用同一套骨架引擎，但「重點」與文案不同。 */
+const ACTION_CFG = {
+  roundhouse:{
+    name:"橫踢",
+    caps:["提膝高度","轉髖角度","支撐腳旋轉","踢擊伸展","平衡回收"],
+    cap:s=>({
+      "提膝高度":s["收膝高度"]/5, "轉髖角度":s["髖部旋轉"]/5, "支撐腳旋轉":s["支撐腳旋轉"]/5,
+      "踢擊伸展":s["膝蓋伸展"]/5, "平衡回收":(s["身體平衡"]+s["收腳速度"])/2/5
+    }),
+    stages:[
+      {name:"準備姿勢",f:s=>s["身體平衡"]},
+      {name:"提膝階段",f:s=>s["收膝高度"]},
+      {name:"轉髖階段",f:s=>(s["髖部旋轉"]+s["支撐腳旋轉"])/2},
+      {name:"踢擊瞬間",f:s=>s["膝蓋伸展"]},
+      {name:"收腳回復",f:s=>(s["身體平衡"]+s["收腳速度"])/2}
+    ],
+    stageText:{
+      "準備姿勢":["重心穩定、預備架式清楚。","重心略偏移，預備時站不穩。","收緊核心，雙腳與肩同寬站穩再起腳。"],
+      "提膝階段":["提膝到位，膝蓋帶到腰線以上。","提膝偏低，膝蓋沒到腰線。","先把膝蓋抬高定格，再出腿，力量更集中。"],
+      "轉髖階段":["髖部旋轉充分，力量有傳遞。","轉髖不足或支撐腳沒轉開。","用髖帶動、支撐腳腳跟轉向目標。"],
+      "踢擊瞬間":["踢擊伸展完整，攻擊距離足。","膝蓋沒完全打直，距離與力量打折。","踢擊瞬間把小腿完全彈出。"],
+      "收腳回復":["收腳快、回到預備位穩定。","收腳偏慢或重心晃動。","踢完立刻收腿回防，避免被反擊。"]
+    },
+    standard:a=>[{k:"提膝角度",std:115,you:a.chamber},{k:"轉髖角度",std:48,you:a.hip},{k:"踢擊角度",std:168,you:a.knee}],
+    prob:{
+      "提膝高度":"提膝太低，膝蓋沒帶到腰線以上","轉髖角度":"轉髖不足，力量被卡在小腿",
+      "支撐腳旋轉":"支撐腳沒轉開，膝蓋容易受扭力","踢擊伸展":"踢擊沒完全伸展，攻擊距離不足",
+      "平衡回收":"踢擊後重心不穩、收腳偏慢"
+    },
+    rx:{
+      "提膝高度":["扶牆提膝 10 下 × 3 組","提膝停 3 秒 × 10 下","慢速橫踢分解 10 下","完整橫踢 10 下"],
+      "轉髖角度":["原地轉髖 20 下","提膝轉髖連動 10 下","靠牆轉髖停 3 秒 × 10","慢速橫踢 10 下"],
+      "支撐腳旋轉":["原地轉腳 20 下","提膝＋支撐腳轉開 10 下","支撐腳轉開停 3 秒 × 10","慢速橫踢 10 下"],
+      "踢擊伸展":["坐姿伸膝彈腿 15 下 × 2","靶位踢擊伸展 10 下","慢速完整伸展橫踢 10 下","全速橫踢 10 下"],
+      "平衡回收":["單腳站平衡 30 秒 × 3","提膝收腳停 2 秒 × 10","踢後快收回防 10 下","連續橫踢 10 下"]
+    }
+  },
+  spin:{
+    name:"旋踢",
+    caps:["轉體幅度","提膝收腿","踢擊伸展","旋轉平衡","落地收腳"],
+    cap:s=>({
+      "轉體幅度":(s["髖部旋轉"]+s["支撐腳旋轉"])/2/5,
+      "提膝收腿":s["收膝高度"]/5,
+      "踢擊伸展":s["膝蓋伸展"]/5,
+      "旋轉平衡":s["身體平衡"]/5,
+      "落地收腳":(s["收腳速度"]+s["身體平衡"])/2/5
+    }),
+    stages:[
+      {name:"預備轉身",f:s=>s["身體平衡"]},
+      {name:"轉體蓄勢",f:s=>s["支撐腳旋轉"]},
+      {name:"提膝展開",f:s=>s["收膝高度"]},
+      {name:"踢擊瞬間",f:s=>s["膝蓋伸展"]},
+      {name:"落地平衡",f:s=>(s["身體平衡"]+s["收腳速度"])/2}
+    ],
+    stageText:{
+      "預備轉身":["預備穩定、視線準備回頭。","起手重心不穩、轉身前晃動。","站穩後再啟動轉身，避免一開始就失衡。"],
+      "轉體蓄勢":["轉體充分、支撐腳轉開到位。","轉體不足、支撐腳沒轉開。","支撐腳腳跟先轉、用腰帶動上半身回頭。"],
+      "提膝展開":["提膝收腿俐落、軌跡乾淨。","提膝太低或收腿不確實。","轉身同時把膝蓋收高，再順勢展開。"],
+      "踢擊瞬間":["踢擊伸展完整、力量到位。","小腿沒完全展開、力量散掉。","踢擊瞬間把腿完全甩出、命中再收。"],
+      "落地平衡":["落地穩、重心收得回來。","落地晃動或收腳偏慢。","踢完控制落地、單腳穩住再回架式。"]
+    },
+    standard:a=>[{k:"轉體角度",std:120,you:a.hip},{k:"提膝角度",std:108,you:a.chamber},{k:"踢擊角度",std:165,you:a.knee}],
+    prob:{
+      "轉體幅度":"轉體不足、回頭與轉腰不夠，旋踢威力打折","提膝收腿":"提膝收腿不確實，旋轉軌跡會散",
+      "踢擊伸展":"踢擊沒完全展開，攻擊距離不足","旋轉平衡":"旋轉中重心不穩，容易站不住",
+      "落地收腳":"落地與收腳不穩，難以接下一動"
+    },
+    rx:{
+      "轉體幅度":["原地轉身回頭 20 下","支撐腳轉開＋轉腰 15 下","慢速旋踢轉體分解 10 下","完整旋踢 10 下"],
+      "提膝收腿":["轉身提膝收腿 15 下","提膝定格 3 秒 × 10","慢速旋踢提膝段 10 下","完整旋踢 10 下"],
+      "踢擊伸展":["靶位旋踢伸展 10 下","慢速完整展開旋踢 10 下","彈腿伸展 15 下 × 2","全速旋踢 10 下"],
+      "旋轉平衡":["原地旋轉 360° 站穩 × 10","單腳旋轉平衡 30 秒 × 3","慢速旋踢控制平衡 10 下","連續旋踢 8 下"],
+      "落地收腳":["旋踢後單腳落地定住 × 10","踢後快收回架式 10 下","旋踢落地接續動作 10 下","連續旋踢 8 下"]
+    }
+  }
+};
+function actionCfg(){ return ACTION_CFG[selAction.value] || ACTION_CFG.roundhouse; }
 
 /* ---------- DOM ---------- */
 const $ = id => document.getElementById(id);
@@ -617,106 +697,72 @@ function computeRawMetrics(frames){
   return {scores,kneeExtDeg:Math.round(kneeExt),chamberDeg:Math.round(chamberDeg),hipDeg:Math.round(hipDeg),kickLeg:kickLeft?"左腳":"右腳",frames:frames.length,sim:false};
 }
 
-/* raw → 完整 result（五項、五階段、回饋、處方、標準對照） */
+/* raw → 完整 result（依動作設定檔：五項、五階段、回饋、處方、標準對照） */
 function buildResult(raw,sim){
   const s=raw.scores;
-  const cap={
-    "提膝高度":Math.round(s["收膝高度"]/5),
-    "轉髖角度":Math.round(s["髖部旋轉"]/5),
-    "支撐腳旋轉":Math.round(s["支撐腳旋轉"]/5),
-    "踢擊伸展":Math.round(s["膝蓋伸展"]/5),
-    "平衡回收":Math.round((s["身體平衡"]+s["收腳速度"])/2/5)
-  };
-  CAP_NAMES.forEach(n=>cap[n]=clamp(cap[n],0,20));
-  const total=CAP_NAMES.reduce((a,n)=>a+cap[n],0);
+  const cfg=actionCfg();
+  const caps=cfg.caps;
+  const rawCap=cfg.cap(s);
+  const cap={}; caps.forEach(n=>cap[n]=clamp(Math.round(rawCap[n]),0,20));
+  const total=caps.reduce((a,n)=>a+cap[n],0);
   const g=gradeOf(total);
 
   // 五階段（0-100）
-  const st=[
-    {name:"準備姿勢",score:Math.round(s["身體平衡"])},
-    {name:"提膝階段",score:Math.round(s["收膝高度"])},
-    {name:"轉髖階段",score:Math.round((s["髖部旋轉"]+s["支撐腳旋轉"])/2)},
-    {name:"踢擊瞬間",score:Math.round(s["膝蓋伸展"])},
-    {name:"收腳回復",score:Math.round((s["身體平衡"]+s["收腳速度"])/2)}
-  ];
-  const stageText={
-    "準備姿勢":["重心穩定、預備架式清楚。","重心略偏移，預備時站不穩。","收緊核心，雙腳與肩同寬站穩再起腳。"],
-    "提膝階段":["提膝到位，膝蓋帶到腰線以上。","提膝偏低，膝蓋沒到腰線。","先把膝蓋抬高定格，再出腿，力量更集中。"],
-    "轉髖階段":["髖部旋轉充分，力量有傳遞。","轉髖不足或支撐腳沒轉開。","用髖帶動、支撐腳腳跟轉向目標。"],
-    "踢擊瞬間":["踢擊伸展完整，攻擊距離足。","膝蓋沒完全打直，距離與力量打折。","踢擊瞬間把小腿完全彈出。"],
-    "收腳回復":["收腳快、回到預備位穩定。","收腳偏慢或重心晃動。","踢完立刻收腿回防，避免被反擊。"]
-  };
-  st.forEach(x=>{const arr=stageText[x.name];const good=x.score>=80;
-    x.judge=good?arr[0]:arr[1];
-    x.error=good?"—":arr[1];
-    x.advice=good?"維持目前水準，加快節奏。":arr[2];
+  const st=cfg.stages.map(d=>{
+    const score=clamp(Math.round(d.f(s)),0,100);
+    const arr=cfg.stageText[d.name]||["完成度良好。","仍可加強。","依分解動作慢練。"];
+    const good=score>=80;
+    return {name:d.name,score,judge:good?arr[0]:arr[1],error:good?"—":arr[1],advice:good?"維持目前水準，加快節奏。":arr[2]};
   });
 
   // 角度（真實或模擬）
   const angK=raw.kneeExtDeg??Math.round(120+Math.random()*50);
   const angH=raw.hipDeg??Math.round(30+Math.random()*30);
   const angC=raw.chamberDeg??Math.round(90+Math.random()*40);
+  const angles={knee:angK,hip:angH,chamber:angC};
 
-  // 標準對照
-  const cmp=[
-    {k:"提膝角度",std:STANDARD.提膝角度,you:angC},
-    {k:"轉髖角度",std:STANDARD.轉髖角度,you:angH},
-    {k:"踢擊角度",std:STANDARD.踢擊角度,you:angK}
-  ].map(o=>({...o,diff:o.you-o.std}));
+  // 標準對照（依動作）
+  const cmp=cfg.standard(angles).map(o=>({...o,diff:o.you-o.std}));
 
-  // 回饋（7 段）+ 處方
-  const fb=makeFeedback(cap,total,g,raw.kickLeg||"—");
-  const rx=makePrescription(cap);
+  // 回饋（7 段）+ 處方（依動作）
+  const fb=makeFeedback(cfg,cap,total,g,raw.kickLeg||"—");
+  const rx=makePrescription(cfg,cap);
 
   return {
-    student:selStudent.value,class:selClass.value,
-    action:(ACTIONS.find(a=>a.id===selAction.value)||{}).name||"橫踢",
+    student:selStudent.value,class:selClass.value,action:cfg.name,
     time:new Date().toLocaleString("zh-TW"),ts:Date.now(),
-    total,grade:g.label,cap,stages:st,angles:{knee:angK,hip:angH,chamber:angC},
+    total,grade:g.label,capNames:caps,cap,stages:st,angles,
     kickLeg:raw.kickLeg||"—",standard:cmp,feedback:fb,prescription:rx,sim:!!sim
   };
 }
 
-/* 7 段回饋 */
-function makeFeedback(cap,total,g,kickLeg){
-  const arr=CAP_NAMES.map(n=>({n,v:cap[n]})).sort((a,b)=>a.v-b.v);
+/* 7 段回饋（依動作設定檔） */
+function makeFeedback(cfg,cap,total,g,kickLeg){
+  const caps=cfg.caps;
+  const arr=caps.map(n=>({n,v:cap[n]})).sort((a,b)=>a.v-b.v);
   const weak=arr[0],weak2=arr[1],strong=arr[arr.length-1];
   const diag = total>=90?"動作已達選手水準，細節再雕即可。"
     : total>=75?"動作架構正確，少數環節需要加強。"
     : total>=60?"基本動作成形，重點環節仍需打磨。"
     : "動作需要重建，建議從分解動作慢練。";
-  const probMap={
-    "提膝高度":"提膝太低，膝蓋沒帶到腰線以上",
-    "轉髖角度":"轉髖不足，力量被卡在小腿",
-    "支撐腳旋轉":"支撐腳沒轉開，膝蓋容易受扭力",
-    "踢擊伸展":"踢擊沒完全伸展，攻擊距離不足",
-    "平衡回收":"踢擊後重心不穩、收腳偏慢"
-  };
+  const probMap=cfg.prob;
   return {
     diagnosis:`【一句話診斷】${diag}（本次以 ${kickLeg} 踢擊）`,
     pros:`本次優點：${strong.n}表現最好（${strong.v}/20），${strong.v>=16?"已具比賽水準。":"是可以再放大的強項。"}`,
     problems:`主要問題：${probMap[weak.n]}（${weak.n} ${weak.v}/20）；其次為 ${weak2.n}（${weak2.v}/20）。`,
     nextGoal:`下一次訓練目標：把「${weak.n}」從 ${weak.v} 提升到 ${Math.min(20,weak.v+3)} 分以上，總分目標 ${Math.min(100,total+8)} 分。`,
-    coach:`教練專業版：踢擊腳=${kickLeg}。提膝${cap.提膝高度}/轉髖${cap.轉髖角度}/支撐腳${cap.支撐腳旋轉}/伸展${cap.踢擊伸展}/平衡回收${cap.平衡回收}。優先修「${weak.n}」，採分解→定格→慢速→全速漸進。`,
-    parent:`家長白話版：孩子這次橫踢拿 ${total} 分（${g.label}）。最棒的是「${strong.n}」，需要多練的是「${weak.n}」。多鼓勵，下次目標進步約 8 分。`,
+    coach:`教練專業版：${cfg.name}・踢擊腳=${kickLeg}。${caps.map(n=>n+cap[n]).join("/")}。優先修「${weak.n}」，採分解→定格→慢速→全速漸進。`,
+    parent:`家長白話版：孩子這次${cfg.name}拿 ${total} 分（${g.label}）。最棒的是「${strong.n}」，需要多練的是「${weak.n}」。多鼓勵，下次目標進步約 8 分。`,
     student:`學生行動版：你最強是「${strong.n}」👍 這次先練「${weak.n}」！照下面訓練處方做完，明天再挑戰一次破紀錄 🔥`
   };
 }
 
-/* 訓練處方（依最弱項） */
-function makePrescription(cap){
-  const arr=CAP_NAMES.map(n=>({n,v:cap[n]})).sort((a,b)=>a.v-b.v);
+/* 訓練處方（依動作設定檔的最弱項） */
+function makePrescription(cfg,cap){
+  const arr=cfg.caps.map(n=>({n,v:cap[n]})).sort((a,b)=>a.v-b.v);
   const rx=[];
-  const lib={
-    "提膝高度":["扶牆提膝 10 下 × 3 組","提膝停 3 秒 × 10 下","慢速橫踢分解 10 下","完整橫踢 10 下"],
-    "轉髖角度":["原地轉髖 20 下","提膝轉髖連動 10 下","靠牆轉髖停 3 秒 × 10","慢速橫踢 10 下"],
-    "支撐腳旋轉":["原地轉腳 20 下","提膝＋支撐腳轉開 10 下","支撐腳轉開停 3 秒 × 10","慢速橫踢 10 下"],
-    "踢擊伸展":["坐姿伸膝彈腿 15 下 × 2","靶位踢擊伸展 10 下","慢速完整伸展橫踢 10 下","全速橫踢 10 下"],
-    "平衡回收":["單腳站平衡 30 秒 × 3","提膝收腳停 2 秒 × 10","踢後快收回防 10 下","連續橫踢 10 下"]
-  };
-  // 取最弱 2 項的處方
-  arr.slice(0,2).forEach(o=>{ if(o.v<16) lib[o.n].forEach(x=>rx.push(`【${o.n}】${x}`)); });
-  if(rx.length===0) rx.push("動作完成度高，維持：完整橫踢 10 下 × 3 組 + 連續踢擊節奏練習。");
+  arr.slice(0,2).forEach(o=>{ if(o.v<16 && cfg.rx[o.n]) cfg.rx[o.n].forEach(x=>rx.push(`【${o.n}】${x}`)); });
+  if(rx.length===0) rx.push(`動作完成度高，維持：完整${cfg.name} 10 下 × 3 組 + 連續節奏練習。`);
   return rx;
 }
 
@@ -739,25 +785,26 @@ function renderResult(r){
   const tag=$("gradeTag");tag.textContent=`${r.total} 分・${g.label}`;tag.style.background=g.bg;tag.style.color=g.color;
   $("totalCopy").textContent=`${r.student}｜${r.class}｜${r.action}（${r.kickLeg}）${r.sim?"・模擬":""}。出腿膝角約 ${r.angles.knee}°。`;
 
-  // 五項能力
-  $("caps").innerHTML=CAP_NAMES.map(n=>{
+  // 五項能力（依動作）
+  const capNames=r.capNames||CAP_NAMES;
+  $("caps").innerHTML=capNames.map(n=>{
     const v=r.cap[n],col=capColor(v);
     return `<div class="cap"><div class="cap-top"><span>${n}</span><strong>${v}/20</strong></div>
       <div class="bar"><i style="width:${v/20*100}%;background:${col}"></i></div></div>`;
   }).join("");
 
-  // 燈號（取三項關鍵）
-  const keys=["提膝高度","轉髖角度","支撐腳旋轉"];
-  $("lights").innerHTML=keys.map(n=>{
+  // 燈號（取前三項關鍵能力）
+  $("lights").innerHTML=capNames.slice(0,3).map(n=>{
     const v=r.cap[n];const col=v>=15?"var(--green)":v>=10?"var(--yellow)":"var(--red)";
     const word=v>=15?"良好":v>=10?"注意":"需修正";
     return `<div class="light"><div class="dot" style="background:${col};box-shadow:0 0 14px ${col}"></div>
       <div class="lab">${n}</div><div class="val">${v}/20・${word}</div></div>`;
   }).join("");
 
-  drawRadar(r.cap);
+  drawRadar(r.cap,capNames);
 
   // 五階段
+  $("stagesTitle").textContent=`🔬 ${r.action}五階段分析`;
   $("stagesBox").innerHTML=r.stages.map(x=>{
     const col=x.score>=80?"var(--green)":x.score>=60?"var(--yellow)":"var(--red)";
     return `<div class="stage-card">
@@ -787,22 +834,23 @@ function renderResult(r){
 }
 
 /* ---------- 雷達圖（Canvas 自繪） ---------- */
-function drawRadar(cap){
+function drawRadar(cap,names){
+  names=names||CAP_NAMES;
   const cv=$("radar");fitCanvas(cv,240);const c=cv.getContext("2d");
   const W=cv.width,H=cv.height,cx=W/2,cy=H/2+6,R=Math.min(W,H)*0.34;
   c.clearRect(0,0,W,H);
-  const N=CAP_NAMES.length;
+  const N=names.length;
   const ang=i=>-Math.PI/2+i*2*Math.PI/N;
   // 網格
   for(let g=1;g<=4;g++){c.beginPath();for(let i=0;i<N;i++){const rr=R*g/4,x=cx+rr*Math.cos(ang(i)),y=cy+rr*Math.sin(ang(i));i?c.lineTo(x,y):c.moveTo(x,y);}c.closePath();c.strokeStyle="rgba(120,200,255,.14)";c.stroke();}
   for(let i=0;i<N;i++){c.beginPath();c.moveTo(cx,cy);c.lineTo(cx+R*Math.cos(ang(i)),cy+R*Math.sin(ang(i)));c.strokeStyle="rgba(120,200,255,.14)";c.stroke();}
   // 資料
-  c.beginPath();for(let i=0;i<N;i++){const v=cap[CAP_NAMES[i]]/20,rr=R*v,x=cx+rr*Math.cos(ang(i)),y=cy+rr*Math.sin(ang(i));i?c.lineTo(x,y):c.moveTo(x,y);}c.closePath();
+  c.beginPath();for(let i=0;i<N;i++){const v=cap[names[i]]/20,rr=R*v,x=cx+rr*Math.cos(ang(i)),y=cy+rr*Math.sin(ang(i));i?c.lineTo(x,y):c.moveTo(x,y);}c.closePath();
   c.fillStyle="rgba(91,230,255,.22)";c.fill();c.strokeStyle="#5be6ff";c.lineWidth=2;c.stroke();
-  for(let i=0;i<N;i++){const v=cap[CAP_NAMES[i]]/20,rr=R*v,x=cx+rr*Math.cos(ang(i)),y=cy+rr*Math.sin(ang(i));c.beginPath();c.arc(x,y,3,0,7);c.fillStyle="#ffd166";c.fill();}
+  for(let i=0;i<N;i++){const v=cap[names[i]]/20,rr=R*v,x=cx+rr*Math.cos(ang(i)),y=cy+rr*Math.sin(ang(i));c.beginPath();c.arc(x,y,3,0,7);c.fillStyle="#ffd166";c.fill();}
   // 標籤
   c.fillStyle="#cfe6ff";c.font="12px Microsoft JhengHei";c.textAlign="center";
-  for(let i=0;i<N;i++){const x=cx+(R+18)*Math.cos(ang(i)),y=cy+(R+18)*Math.sin(ang(i))+4;c.fillText(CAP_NAMES[i],x,y);}
+  for(let i=0;i<N;i++){const x=cx+(R+18)*Math.cos(ang(i)),y=cy+(R+18)*Math.sin(ang(i))+4;c.fillText(names[i],x,y);}
   c.textAlign="left";
 }
 /* 折線圖 */
@@ -841,7 +889,8 @@ function statsFor(name){
   let improve=null;const seq=arr.slice().sort((a,b)=>(a.ts||0)-(b.ts||0));
   if(seq.length>=2)improve=seq[seq.length-1].total-seq[seq.length-2].total;
   // 最常問題：用最弱 cap 統計
-  const tally={};arr.forEach(h=>{const w=CAP_NAMES.map(n=>({n,v:h.cap?h.cap[n]:20})).sort((a,b)=>a.v-b.v)[0];if(w)tally[w.n]=(tally[w.n]||0)+1;});
+  const tally={};arr.forEach(h=>{const keys=h.cap?Object.keys(h.cap):[];if(!keys.length)return;
+    const w=keys.map(n=>({n,v:h.cap[n]})).sort((a,b)=>a.v-b.v)[0];if(w)tally[w.n]=(tally[w.n]||0)+1;});
   const issues=Object.entries(tally).sort((a,b)=>b[1]-a[1]);
   return {arr,best,wAvg,improve,issues,count:arr.length,seq};
 }
@@ -927,13 +976,15 @@ function download(blob,name){const u=URL.createObjectURL(blob);const a=document.
 function needResult(){if(!currentResult){alert("尚未有分析結果，請先分析或模擬。");return false;}return true;}
 
 function exportResultTxt(){if(!needResult())return;const r=currentResult;
-  const lines=[reportText(r),"","五項能力：",...CAP_NAMES.map(n=>`${n}：${r.cap[n]}/20`),"",
+  const cn=r.capNames||CAP_NAMES;
+  const lines=[reportText(r),"","五項能力：",...cn.map(n=>`${n}：${r.cap[n]}/20`),"",
     "五階段：",...r.stages.map(s=>`${s.name}：${s.score}（${s.judge}）`),"","訓練處方：",...r.prescription.map(x=>"・"+x)];
   download(new Blob([lines.join("\n")],{type:"text/plain;charset=utf-8"}),`TKD_${r.student}_${r.total}.txt`);}
 function exportJson(){if(!needResult())return;download(new Blob([JSON.stringify(currentResult,null,2)],{type:"application/json;charset=utf-8"}),`TKD_${currentResult.student}_${currentResult.total}.json`);}
 function exportCsv(){if(!needResult())return;const r=currentResult;
-  const head=["學生","班別","動作","日期","總分","等級",...CAP_NAMES];
-  const row=[r.student,r.class,r.action,r.time,r.total,r.grade,...CAP_NAMES.map(n=>r.cap[n])];
+  const cn=r.capNames||CAP_NAMES;
+  const head=["學生","班別","動作","日期","總分","等級",...cn];
+  const row=[r.student,r.class,r.action,r.time,r.total,r.grade,...cn.map(n=>r.cap[n])];
   const csv=head.join(",")+"\n"+row.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",");
   download(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"}),`TKD_${r.student}_${r.total}.csv`);}
 
@@ -990,7 +1041,7 @@ selAction.addEventListener("change",()=>{const a=ACTIONS.find(x=>x.id===selActio
   if(a&&!a.ready)toast(`「${a.name}」分析模型開發中，目前以橫踢引擎示範`);});
 
 /* ---------- 啟動 ---------- */
-window.addEventListener("resize",()=>{if(currentResult)drawRadar(currentResult.cap);
+window.addEventListener("resize",()=>{if(currentResult)drawRadar(currentResult.cap,currentResult.capNames);
   if(currentView==="home")drawLine($("homeChart"),history.slice(0,20).reverse().map(h=>h.total),180);
   if(currentView==="history")refreshHistory();});
 setMode("coach");setView("home");
