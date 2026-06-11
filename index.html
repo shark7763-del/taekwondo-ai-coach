@@ -196,6 +196,47 @@
     .empty { color: var(--muted); font-size: 14px; padding: 12px; border-radius: 14px; border: 1px dashed rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.03); }
     .footer-note { color: var(--muted); text-align: center; font-size: 12px; padding: 22px 10px 8px; }
 
+    /* ===== 分頁 ===== */
+    .tabs { display: flex; gap: 8px; margin: 0 4px 14px; flex-wrap: wrap; }
+    .tab-btn {
+      background: rgba(255,255,255,0.05); color: var(--muted);
+      border: 1px solid var(--line); border-radius: 14px;
+      padding: 11px 18px; font-weight: 800; font-size: 15px;
+    }
+    .tab-btn.active { background: linear-gradient(135deg, var(--cyan), var(--blue)); color: #06111f; border-color: transparent; }
+    .tab-panel[hidden] { display: none; }
+
+    /* ===== 品勢錄製 ===== */
+    .rec-indicator { display: flex; align-items: center; gap: 10px; padding: 8px 12px; color: var(--text); font-weight: 700; font-size: 14px; }
+    .rec-indicator .rec-dot { display: none; }
+
+    .pm-form { padding: 14px; display: grid; gap: 10px; border-top: 1px solid rgba(95,180,255,0.18); }
+    .pm-form.hidden { display: none; }
+    .pm-form label { font-size: 13px; color: var(--muted); display: grid; gap: 5px; }
+    .pm-form label.chk { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 14px; }
+    .pm-form input, .pm-form select, .pm-form textarea {
+      background: rgba(255,255,255,0.05); border: 1px solid var(--line);
+      border-radius: 12px; padding: 10px; color: var(--text); font-size: 14px; font-family: inherit;
+    }
+    .pm-form .row { display: flex; gap: 10px; }
+    .muted-btn { background: rgba(255,255,255,0.08); color: var(--text); }
+
+    .cap-bar { padding: 12px 16px 4px; color: var(--muted); font-size: 12px; }
+    .rec-list { display: grid; gap: 10px; padding: 14px; }
+    .rec-card { padding: 13px; border-radius: 16px; background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.08); }
+    .rec-card h4 { margin: 0 0 6px; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .tpl-badge { font-size: 11px; color: #06111f; background: var(--green); padding: 2px 8px; border-radius: 999px; font-weight: 800; }
+    .rec-card .meta { color: var(--muted); font-size: 12px; line-height: 1.6; margin-bottom: 10px; }
+    .rec-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .rec-actions button, .btn-sm { padding: 8px 11px; font-size: 12px; border-radius: 10px; }
+    .btn-sm { background: rgba(114,247,255,0.16); color: var(--cyan); border: 1px solid var(--line); }
+    .btn-sm.danger { background: rgba(255,107,107,0.14); color: var(--red); border-color: rgba(255,107,107,0.4); }
+
+    .replay-box { position: relative; min-height: 300px; background: #050c17; display: flex; align-items: center; justify-content: center; }
+    .replay-controls { display: flex; gap: 8px; align-items: center; padding: 12px; flex-wrap: wrap; }
+    .replay-controls input[type=range] { flex: 1; min-width: 120px; }
+    .replay-controls button { padding: 9px 12px; font-size: 13px; }
+
     @media (min-width: 900px) {
       .app { padding: 28px; }
       .layout { grid-template-columns: 1.12fr 0.88fr; align-items: start; }
@@ -208,6 +249,9 @@
 
 <body>
   <main class="app">
+    <!-- 共用攝影機來源（永遠隱藏，避免被分頁 display:none 暫停） -->
+    <video id="video" playsinline muted style="display:none"></video>
+
     <section class="hero">
       <div class="badge">
         <span class="badge-dot"></span>
@@ -217,6 +261,15 @@
       <p class="subtitle">橫踢動作即時骨架分析（33 點關鍵點 + 真實角度計算）</p>
     </section>
 
+    <!-- 分頁切換 -->
+    <div class="tabs">
+      <button class="tab-btn active" id="tabBtnKick" data-tab="kick">橫踢分析</button>
+      <button class="tab-btn" id="tabBtnPoomsae" data-tab="poomsae">品勢錄製</button>
+      <button class="tab-btn" id="tabBtnCompare" data-tab="compare">範本對照</button>
+    </div>
+
+    <!-- 分頁：橫踢分析（原功能，未更動） -->
+    <div id="tab-kick" class="tab-panel">
     <section class="layout">
       <!-- 攝影機 / 骨架區 -->
       <section class="card">
@@ -228,7 +281,6 @@
         <div class="camera-box">
           <div class="camera-label" id="cameraLabel">AI 骨架偵測</div>
 
-          <video id="video" playsinline muted></video>
           <canvas id="poseCanvas" width="640" height="480"></canvas>
 
           <div class="rec-overlay" id="recOverlay">
@@ -287,6 +339,140 @@
         <div class="empty">目前尚無分析紀錄。</div>
       </div>
     </section>
+    </div><!-- /tab-kick -->
+
+    <!-- 分頁：品勢錄製 -->
+    <div id="tab-poomsae" class="tab-panel" hidden>
+      <section class="layout">
+        <!-- 錄製區 -->
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title">品勢骨架錄製</h2>
+            <div class="status warn" id="pmStatus">尚未開啟攝影機</div>
+          </div>
+
+          <div class="camera-box">
+            <div class="camera-label">AI 骨架（品勢）</div>
+            <canvas id="poomsaeCanvas" width="640" height="480"></canvas>
+            <div class="rec-indicator" id="pmRecIndicator"
+                 style="position:absolute;left:16px;bottom:14px;z-index:3;background:rgba(0,0,0,0.42);border:1px solid rgba(255,255,255,0.12);border-radius:12px;backdrop-filter:blur(6px);">
+              <span class="rec-dot" id="pmRecDot"></span>
+              <span id="pmRecText">未錄製</span>
+            </div>
+          </div>
+
+          <div class="controls">
+            <button class="btn-camera" id="pmCameraBtn">開啟攝影機</button>
+            <button class="btn-analyze" id="pmStartBtn" disabled>開始錄製</button>
+            <button class="btn-reset" id="pmStopBtn" disabled>停止錄製</button>
+            <button class="btn-export" id="pmImportBtn">匯入 JSON</button>
+          </div>
+
+          <!-- 存檔表單（停止錄製後出現） -->
+          <div class="pm-form hidden" id="pmForm">
+            <label>範本名稱
+              <input id="pmName" placeholder="例：太極一章-標準" />
+            </label>
+            <div class="row">
+              <label style="flex:1">品勢
+                <select id="pmType">
+                  <option value="taegeuk_1">太極一章</option>
+                  <option value="taegeuk_2">太極二章</option>
+                  <option value="taegeuk_3">太極三章</option>
+                  <option value="taegeuk_4">太極四章</option>
+                  <option value="taegeuk_5">太極五章</option>
+                  <option value="taegeuk_6">太極六章</option>
+                  <option value="taegeuk_7">太極七章</option>
+                  <option value="taegeuk_8">太極八章</option>
+                  <option value="other">其他/自訂</option>
+                </select>
+              </label>
+              <label style="flex:1">示範者
+                <input id="pmDemo" placeholder="例：王教練" />
+              </label>
+            </div>
+            <label>備註
+              <input id="pmNote" placeholder="例：正面示範、左起" />
+            </label>
+            <label class="chk"><input type="checkbox" id="pmIsTemplate" /> 設為標準範本（對照組）</label>
+            <div class="row">
+              <button class="btn-analyze" id="pmSaveBtn" style="flex:1">儲存</button>
+              <button class="muted-btn" id="pmCancelBtn" style="flex:1">捨棄</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 重播區 -->
+        <section class="card" id="replayCard" hidden>
+          <div class="card-header">
+            <h2 class="card-title">骨架重播</h2>
+            <div class="status" id="replayTitle">—</div>
+          </div>
+          <div class="replay-box">
+            <canvas id="replayCanvas" width="640" height="480"></canvas>
+          </div>
+          <div class="replay-controls">
+            <button class="muted-btn" id="replayPlayPause">暫停</button>
+            <button class="muted-btn" id="replaySpeed">1.0×</button>
+            <input type="range" id="replayProgress" min="0" max="1000" value="0" />
+            <span class="history-meta" id="replayTime">0s / 0s</span>
+            <button class="btn-sm danger" id="replayClose">關閉</button>
+          </div>
+        </section>
+      </section>
+
+      <!-- 範本 / 錄製清單 -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">錄製與範本清單</h2>
+          <button class="btn-sm" id="pmExportAllBtn">匯出全部</button>
+        </div>
+        <div class="cap-bar" id="pmCapBar">儲存空間：計算中…</div>
+        <div class="rec-list" id="pmList">
+          <div class="empty">尚無錄製。開啟攝影機後按「開始錄製」。</div>
+        </div>
+      </section>
+
+      <input type="file" id="pmImportFile" accept="application/json" style="display:none" />
+    </div><!-- /tab-poomsae -->
+
+    <!-- 分頁：範本對照（疊圖比對） -->
+    <div id="tab-compare" class="tab-panel" hidden>
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">範本對照（疊圖比對）</h2>
+          <div class="status" id="cmpStatus">選擇範本後套用</div>
+        </div>
+
+        <div class="pm-form" style="border-top:none">
+          <div class="row">
+            <label style="flex:1">標準範本（綠）
+              <select id="cmpTemplateSel"></select>
+            </label>
+            <label style="flex:1">對照來源（紅）
+              <select id="cmpSourceSel"></select>
+            </label>
+          </div>
+          <div class="row">
+            <button class="btn-analyze" id="cmpApplyBtn" style="flex:2">套用對照</button>
+            <button class="muted-btn" id="cmpRefreshBtn" style="flex:1">重新整理</button>
+          </div>
+        </div>
+
+        <div class="replay-box">
+          <canvas id="cmpCanvas" width="640" height="480"></canvas>
+          <div class="camera-label" style="left:16px;top:16px">綠＝標準範本　紅＝你/學員</div>
+        </div>
+
+        <div class="replay-controls">
+          <button class="muted-btn" id="cmpPlayPause">暫停</button>
+          <button class="muted-btn" id="cmpSpeed">1.0×</button>
+          <span class="history-meta" id="cmpError" style="flex:1">—</span>
+          <button class="btn-sm danger" id="cmpStop">停止</button>
+        </div>
+        <div class="cap-bar">綠線＝你設的標準範本，紅線＝對照來源（即時鏡頭或另一筆錄製）。兩者都以髖中心對齊、軀幹長縮放，所以不受身高/站位影響，純看姿勢差異。</div>
+      </section>
+    </div><!-- /tab-compare -->
 
     <div class="footer-note">
       Taekwondo AI Coach｜純前端 + MediaPipe Pose｜骨架資料只在你的裝置上運算，不上傳
@@ -354,6 +540,8 @@
 
     let currentResult = null;
     let history = loadHistory();
+
+    let currentTab = "kick";   // "kick" | "poomsae"
 
     /* ---------- 幾何小工具（已做 x/y 比例校正） ---------- */
     function P(lm, idx) { return { x: lm[idx].x * ASPECT, y: lm[idx].y, v: lm[idx].visibility ?? 1, z: lm[idx].z ?? 0 }; }
@@ -438,12 +626,15 @@
     }
 
     function onPoseResults(results) {
+      latestLandmarks = results.poseLandmarks || null;
+      if (currentTab === "poomsae") { onPoseResultsPoomsae(results); return; }
+      if (currentTab === "compare") { return; }   // 對照分頁由 cmpTick 自行繪製疊圖
+
       ctx.save();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (results.image) ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
       const lm = results.poseLandmarks;
-      latestLandmarks = lm || null;
 
       if (lm) {
         // 連線與關鍵點（錄製中改成綠色）
@@ -491,6 +682,11 @@
           ASPECT = video.videoWidth / video.videoHeight;
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
+          if (typeof poomsaeCanvas !== "undefined" && poomsaeCanvas) {
+            poomsaeCanvas.width = video.videoWidth;
+            poomsaeCanvas.height = video.videoHeight;
+          }
+          VIDEO_W = video.videoWidth; VIDEO_H = video.videoHeight;
         }
 
         cameraOn = true;
@@ -499,6 +695,7 @@
         cameraBtn.textContent = "攝影機已開啟";
         setStatus("ok", "攝影機運作中");
         cameraLabel.textContent = "Live Camera + AI 骨架";
+        if (typeof updatePmCameraUI === "function") updatePmCameraUI();
       } catch (err) {
         cameraBtn.disabled = false;
         setStatus("warn", "無法開啟攝影機");
@@ -757,6 +954,623 @@
       URL.revokeObjectURL(url);
     }
 
+    /* ==========================================================
+       品勢錄製模組（保留骨架動態 → 標準範本對照組）
+       - 手動開始/停止錄製，15fps 降取樣
+       - 逐格骨架存 IndexedDB（可重播、可匯出 JSON）
+       - 自動算起手/結束特徵、回原點誤差、方向差
+    ========================================================== */
+    const REC_FPS = 15;                 // 錄製降取樣
+    const POOMSAE_DB = "tkd_poomsae_db";
+    let VIDEO_W = 640, VIDEO_H = 480;
+
+    const r3 = v => Math.round((v || 0) * 1000) / 1000;
+    const r2 = v => Math.round((v == null ? 1 : v) * 100) / 100;
+    const r1 = v => Math.round((v || 0) * 10) / 10;
+    function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
+
+    // DOM
+    const poomsaeCanvas = document.getElementById("poomsaeCanvas");
+    const poomsaeCtx = poomsaeCanvas.getContext("2d");
+    const pmStatus = document.getElementById("pmStatus");
+    const pmCameraBtn = document.getElementById("pmCameraBtn");
+    const pmStartBtn = document.getElementById("pmStartBtn");
+    const pmStopBtn = document.getElementById("pmStopBtn");
+    const pmImportBtn = document.getElementById("pmImportBtn");
+    const pmImportFile = document.getElementById("pmImportFile");
+    const pmRecDot = document.getElementById("pmRecDot");
+    const pmRecText = document.getElementById("pmRecText");
+    const pmForm = document.getElementById("pmForm");
+    const pmName = document.getElementById("pmName");
+    const pmType = document.getElementById("pmType");
+    const pmDemo = document.getElementById("pmDemo");
+    const pmNote = document.getElementById("pmNote");
+    const pmIsTemplate = document.getElementById("pmIsTemplate");
+    const pmSaveBtn = document.getElementById("pmSaveBtn");
+    const pmCancelBtn = document.getElementById("pmCancelBtn");
+    const pmList = document.getElementById("pmList");
+    const pmCapBar = document.getElementById("pmCapBar");
+    const pmExportAllBtn = document.getElementById("pmExportAllBtn");
+
+    const replayCard = document.getElementById("replayCard");
+    const replayCanvas = document.getElementById("replayCanvas");
+    const replayCtx = replayCanvas.getContext("2d");
+    const replayTitle = document.getElementById("replayTitle");
+    const replayPlayPause = document.getElementById("replayPlayPause");
+    const replaySpeed = document.getElementById("replaySpeed");
+    const replayProgress = document.getElementById("replayProgress");
+    const replayTime = document.getElementById("replayTime");
+    const replayClose = document.getElementById("replayClose");
+
+    const PM_TYPE_LABEL = {
+      taegeuk_1:"太極一章", taegeuk_2:"太極二章", taegeuk_3:"太極三章", taegeuk_4:"太極四章",
+      taegeuk_5:"太極五章", taegeuk_6:"太極六章", taegeuk_7:"太極七章", taegeuk_8:"太極八章", other:"自訂"
+    };
+
+    // 錄製狀態
+    let pmRecording = false;
+    let pmFrames = [];
+    let pmStartT = 0, pmLastSample = 0, pmTimer = null;
+    let pmPendingRecord = null;
+
+    // 重播狀態
+    let pb = { rec:null, frames:[], playing:false, startWall:0, speed:1, raf:0, idx:0, pausedT:0 };
+
+    function setPmStatus(kind, text) {
+      pmStatus.className = "status" + (kind === "ok" ? "" : " " + kind);
+      pmStatus.textContent = text;
+    }
+    function updatePmCameraUI() {
+      if (cameraOn) {
+        pmStartBtn.disabled = false;
+        pmCameraBtn.textContent = "攝影機已開啟";
+        pmCameraBtn.disabled = true;
+        setPmStatus("ok", "攝影機運作中（請固定機位）");
+      }
+    }
+
+    /* ---------- 定位輔助框（讓不同次/不同人站位一致） ---------- */
+    function drawPoomsaeGuide(c, w, h) {
+      const mx = w * 0.12, my = h * 0.06;
+      c.save();
+      c.setLineDash([8, 8]);
+      c.strokeStyle = "rgba(114,247,255,0.45)";
+      c.lineWidth = 2;
+      c.strokeRect(mx, my, w - mx * 2, h - my * 2);   // 安全框：全身請落在框內
+      c.setLineDash([]);
+      // 中央起手基準線
+      c.strokeStyle = "rgba(255,209,102,0.5)";
+      c.beginPath(); c.moveTo(w/2, my); c.lineTo(w/2, h - my); c.stroke();
+      // 起手腳位標記（中央偏下）
+      c.fillStyle = "rgba(255,209,102,0.85)";
+      c.beginPath(); c.arc(w/2, h * 0.86, 7, 0, Math.PI*2); c.fill();
+      c.fillStyle = "rgba(114,247,255,0.9)";
+      c.font = "bold 14px Microsoft JhengHei";
+      c.fillText("起手站中央黃點上、全身落在框內", mx + 6, my + 22);
+      c.restore();
+    }
+    function drawPoomsaeIdle() {
+      const w = poomsaeCanvas.width, h = poomsaeCanvas.height;
+      poomsaeCtx.clearRect(0, 0, w, h);
+      poomsaeCtx.fillStyle = "#050c17"; poomsaeCtx.fillRect(0, 0, w, h);
+      drawPoomsaeGuide(poomsaeCtx, w, h);
+      poomsaeCtx.fillStyle = "#72f7ff"; poomsaeCtx.font = "bold 16px Microsoft JhengHei";
+      poomsaeCtx.fillText("請開啟攝影機並固定機位（建議腳架）", w*0.12 + 6, h*0.5);
+    }
+
+    /* ---------- 攝影機回呼：品勢分頁 ---------- */
+    function onPoseResultsPoomsae(results) {
+      const c = poomsaeCtx, w = poomsaeCanvas.width, h = poomsaeCanvas.height;
+      c.save();
+      c.clearRect(0, 0, w, h);
+      if (results.image) c.drawImage(results.image, 0, 0, w, h);
+      drawPoomsaeGuide(c, w, h);
+      const lm = results.poseLandmarks;
+      if (lm) {
+        const col = pmRecording ? "#ff6b6b" : "#72f7ff";
+        if (window.drawConnectors && window.POSE_CONNECTIONS) {
+          drawConnectors(c, lm, POSE_CONNECTIONS, { color: col, lineWidth: 4 });
+          drawLandmarks(c, lm, { color: "#ffd166", lineWidth: 1, radius: 3 });
+        }
+        if (pmRecording) {
+          const now = performance.now();
+          if (now - pmLastSample >= 1000 / REC_FPS) {
+            pmFrames.push({ t: Math.round(now - pmStartT), lm: packLandmarks(lm) });
+            pmLastSample = now;
+          }
+        }
+      } else {
+        c.fillStyle = "rgba(255,107,107,0.9)"; c.font = "bold 16px Microsoft JhengHei";
+        c.fillText("偵測不到人體，請全身入鏡", 30, 40);
+      }
+      c.restore();
+    }
+
+    function packLandmarks(lm) {
+      return lm.map(p => [r3(p.x), r3(p.y), r3(p.z || 0), r2(p.visibility)]);
+    }
+
+    /* ---------- 起手/結束特徵（packed lm 陣列） ---------- */
+    function pHipCenter(lm) { return { x: r3((lm[23][0] + lm[24][0]) / 2), y: r3((lm[23][1] + lm[24][1]) / 2) }; }
+    function pTorso(lm) {
+      const sx=(lm[11][0]+lm[12][0])/2, sy=(lm[11][1]+lm[12][1])/2;
+      const hx=(lm[23][0]+lm[24][0])/2, hy=(lm[23][1]+lm[24][1])/2;
+      return Math.hypot((sx-hx)*ASPECT, sy-hy);
+    }
+    function pShoulderDeg(lm) {
+      return Math.atan2(lm[12][1]-lm[11][1], (lm[12][0]-lm[11][0])*ASPECT) * 180 / Math.PI;
+    }
+    function buildSummary(frames) {
+      if (!frames.length) return null;
+      const f0 = frames[0].lm, fN = frames[frames.length-1].lm;
+      const hip0 = pHipCenter(f0), hipN = pHipCenter(fN);
+      const t0 = pTorso(f0), tN = pTorso(fN);
+      const tRef = Math.max(1e-3, (t0 + tN) / 2);
+      const dx = ((hipN.x - hip0.x) * ASPECT) / tRef;
+      const dy = (hipN.y - hip0.y) / tRef;
+      const sa0 = pShoulderDeg(f0), saN = pShoulderDeg(fN);
+      return {
+        start: { hipCenter: hip0, torsoLen: r3(t0), shoulderAngleDeg: r1(sa0), tStartMs: frames[0].t },
+        end:   { hipCenter: hipN, torsoLen: r3(tN), shoulderAngleDeg: r1(saN), tEndMs: frames[frames.length-1].t },
+        displacement: { dx: r3(dx), dy: r3(dy), returnError: r3(Math.hypot(dx, dy)) },
+        headingDeltaDeg: r1(saN - sa0)
+      };
+    }
+
+    /* ---------- 錄製：開始 / 停止 ---------- */
+    function startPoomsaeRec() {
+      if (!cameraOn) { alert("請先開啟攝影機，並把機位固定（建議腳架）。"); return; }
+      pmFrames = []; pmRecording = true; pmStartT = performance.now(); pmLastSample = 0;
+      pmStartBtn.disabled = true; pmStopBtn.disabled = false;
+      pmRecDot.style.display = "inline-block";
+      pmForm.classList.add("hidden");
+      pmTimer = setInterval(updateRecIndicator, 150);
+      setPmStatus("busy", "錄製中…");
+    }
+    function updateRecIndicator() {
+      const secs = ((performance.now() - pmStartT) / 1000).toFixed(1);
+      pmRecText.textContent = "錄製中 " + secs + "s｜" + pmFrames.length + " 格";
+    }
+    function stopPoomsaeRec() {
+      if (!pmRecording) return;
+      pmRecording = false;
+      clearInterval(pmTimer); pmTimer = null;
+      pmStartBtn.disabled = false; pmStopBtn.disabled = true;
+      pmRecDot.style.display = "none"; pmRecText.textContent = "未錄製";
+      if (pmFrames.length < 5) { setPmStatus("warn", "影格太少，請重錄"); alert("錄到的有效影格太少，請確認全身入鏡後重錄。"); return; }
+      pmPendingRecord = {
+        id: "rec_" + Date.now(), schemaVersion: 1,
+        meta: {
+          name: "", poomsaeType: "taegeuk_1", createdAt: new Date().toISOString(),
+          isTemplate: false, demonstrator: "", note: "",
+          fps: REC_FPS, frameCount: pmFrames.length,
+          durationMs: pmFrames[pmFrames.length-1].t,
+          video: { width: VIDEO_W, height: VIDEO_H, aspect: r3(ASPECT) },
+          encoding: { decimals: 3, hasZ: true, visQuant: 2 }
+        },
+        summary: buildSummary(pmFrames),
+        frames: pmFrames.slice()
+      };
+      pmName.value = "品勢錄製 " + new Date().toLocaleString("zh-TW");
+      pmType.value = "taegeuk_1"; pmDemo.value = ""; pmNote.value = ""; pmIsTemplate.checked = false;
+      pmForm.classList.remove("hidden");
+      setPmStatus("ok", "錄製完成（" + pmFrames.length + " 格），請填寫並儲存");
+    }
+    async function savePending() {
+      if (!pmPendingRecord) return;
+      const rec = pmPendingRecord;
+      rec.meta.name = pmName.value.trim() || "未命名";
+      rec.meta.poomsaeType = pmType.value;
+      rec.meta.demonstrator = pmDemo.value.trim();
+      rec.meta.note = pmNote.value.trim();
+      rec.meta.isTemplate = pmIsTemplate.checked;
+      try { await dbPut(rec); } catch (e) { alert("儲存失敗：" + e); return; }
+      pmForm.classList.add("hidden"); pmPendingRecord = null;
+      setPmStatus("ok", "已儲存");
+      refreshPmList();
+    }
+
+    /* ---------- IndexedDB（meta / frames 兩個 store） ---------- */
+    function dbOpen() {
+      return new Promise((res, rej) => {
+        const r = indexedDB.open(POOMSAE_DB, 1);
+        r.onupgradeneeded = e => {
+          const d = e.target.result;
+          if (!d.objectStoreNames.contains("meta")) d.createObjectStore("meta", { keyPath: "id" });
+          if (!d.objectStoreNames.contains("frames")) d.createObjectStore("frames", { keyPath: "id" });
+        };
+        r.onsuccess = e => res(e.target.result);
+        r.onerror = e => rej(e.target.error);
+      });
+    }
+    async function dbPut(rec) {
+      const db = await dbOpen();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(["meta", "frames"], "readwrite");
+        tx.objectStore("meta").put({ id: rec.id, schemaVersion: rec.schemaVersion, meta: rec.meta, summary: rec.summary });
+        tx.objectStore("frames").put({ id: rec.id, frames: rec.frames });
+        tx.oncomplete = () => res();
+        tx.onerror = e => rej(e.target.error);
+      });
+    }
+    async function dbListMeta() {
+      const db = await dbOpen();
+      return new Promise((res, rej) => {
+        const rq = db.transaction("meta").objectStore("meta").getAll();
+        rq.onsuccess = () => res(rq.result || []);
+        rq.onerror = e => rej(e.target.error);
+      });
+    }
+    async function dbGetFull(id) {
+      const db = await dbOpen();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(["meta", "frames"]);
+        let meta, frames;
+        tx.objectStore("meta").get(id).onsuccess = e => meta = e.target.result;
+        tx.objectStore("frames").get(id).onsuccess = e => frames = e.target.result;
+        tx.oncomplete = () => {
+          if (!meta) { res(null); return; }
+          res({ id, schemaVersion: meta.schemaVersion, meta: meta.meta, summary: meta.summary, frames: (frames && frames.frames) || [] });
+        };
+        tx.onerror = e => rej(e.target.error);
+      });
+    }
+    async function dbDelete(id) {
+      const db = await dbOpen();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(["meta", "frames"], "readwrite");
+        tx.objectStore("meta").delete(id);
+        tx.objectStore("frames").delete(id);
+        tx.oncomplete = () => res();
+        tx.onerror = e => rej(e.target.error);
+      });
+    }
+
+    /* ---------- 清單 ---------- */
+    async function refreshPmList() {
+      let metas = [];
+      try { metas = await dbListMeta(); } catch (e) { pmList.innerHTML = `<div class="empty">讀取失敗：${esc(String(e))}</div>`; return; }
+      metas.sort((a, b) => (b.meta.createdAt || "").localeCompare(a.meta.createdAt || ""));
+      if (!metas.length) {
+        pmList.innerHTML = `<div class="empty">尚無錄製。開啟攝影機後按「開始錄製」。</div>`;
+        updateCapBar(); return;
+      }
+      pmList.innerHTML = metas.map(m => {
+        const meta = m.meta, s = m.summary || {};
+        const re = s.displacement ? s.displacement.returnError : "—";
+        const hd = (s.headingDeltaDeg !== undefined) ? s.headingDeltaDeg + "°" : "—";
+        const dur = ((meta.durationMs || 0) / 1000).toFixed(1);
+        const when = (meta.createdAt || "").slice(0, 16).replace("T", " ");
+        return `<div class="rec-card" data-id="${m.id}">
+          <h4>${esc(meta.name || "未命名")} ${meta.isTemplate ? '<span class="tpl-badge">標準範本</span>' : ""}</h4>
+          <div class="meta">${PM_TYPE_LABEL[meta.poomsaeType] || esc(meta.poomsaeType)}｜${esc(meta.demonstrator || "—")}｜${when}<br>
+            時長 ${dur}s｜${meta.frameCount} 格｜回原點誤差 ${re}（軀幹長）｜方向差 ${hd}${meta.note ? "<br>備註：" + esc(meta.note) : ""}</div>
+          <div class="rec-actions">
+            <button class="btn-sm" data-act="play">重播</button>
+            <button class="btn-sm" data-act="tpl">${meta.isTemplate ? "取消標準" : "設為標準"}</button>
+            <button class="btn-sm" data-act="rename">改名</button>
+            <button class="btn-sm" data-act="export">匯出JSON</button>
+            <button class="btn-sm danger" data-act="del">刪除</button>
+          </div>
+        </div>`;
+      }).join("");
+      updateCapBar();
+    }
+    async function updateCapBar() {
+      let txt = "";
+      if (navigator.storage && navigator.storage.estimate) {
+        try {
+          const e = await navigator.storage.estimate();
+          txt = "｜已用約 " + (e.usage/1048576).toFixed(1) + " MB / 可用約 " + (e.quota/1048576).toFixed(0) + " MB";
+        } catch (_) {}
+      }
+      let n = 0; try { n = (await dbListMeta()).length; } catch (_) {}
+      pmCapBar.textContent = "共 " + n + " 筆錄製（存於本機 IndexedDB，不上傳）" + txt;
+    }
+
+    // 清單按鈕（事件委派）
+    pmList.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("button[data-act]");
+      if (!btn) return;
+      const card = ev.target.closest(".rec-card");
+      const id = card && card.dataset.id;
+      if (!id) return;
+      const act = btn.dataset.act;
+      if (act === "play") { playRecord(id); }
+      else if (act === "del") { if (confirm("確定刪除這筆錄製？")) { await dbDelete(id); if (pb.rec && pb.rec.id === id) closeReplay(); refreshPmList(); } }
+      else if (act === "tpl") { const rec = await dbGetFull(id); if (rec) { rec.meta.isTemplate = !rec.meta.isTemplate; await dbPut(rec); refreshPmList(); } }
+      else if (act === "rename") { const rec = await dbGetFull(id); if (rec) { const n = prompt("新名稱：", rec.meta.name || ""); if (n !== null) { rec.meta.name = n.trim() || rec.meta.name; await dbPut(rec); refreshPmList(); } } }
+      else if (act === "export") { const rec = await dbGetFull(id); if (rec) downloadJSON(rec, (rec.meta.name || "poomsae") + ".json"); }
+    });
+
+    /* ---------- 匯出 / 匯入 ---------- */
+    function downloadJSON(obj, filename) {
+      const blob = new Blob([JSON.stringify(obj)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+    }
+    async function exportAll() {
+      const metas = await dbListMeta();
+      if (!metas.length) { alert("目前沒有任何錄製。"); return; }
+      const all = [];
+      for (const m of metas) all.push(await dbGetFull(m.id));
+      downloadJSON(all, "poomsae-all-" + Date.now() + ".json");
+    }
+    async function importJSON(file) {
+      const text = await file.text();
+      let data;
+      try { data = JSON.parse(text); } catch (e) { alert("JSON 解析失敗。"); return; }
+      const arr = Array.isArray(data) ? data : [data];
+      let ok = 0;
+      for (let i = 0; i < arr.length; i++) {
+        const rec = arr[i];
+        if (!rec || !rec.frames || !rec.meta) continue;
+        rec.id = "rec_" + Date.now() + "_" + i;          // 重新配 id，避免覆蓋既有
+        if (!rec.summary) rec.summary = buildSummary(rec.frames);
+        try { await dbPut(rec); ok++; } catch (_) {}
+      }
+      alert("匯入完成：" + ok + " 筆。");
+      refreshPmList();
+    }
+
+    /* ---------- 重播 ---------- */
+    function drawReplayFrame(packed) {
+      const c = replayCtx, w = replayCanvas.width, h = replayCanvas.height;
+      c.clearRect(0, 0, w, h);
+      c.fillStyle = "#050c17"; c.fillRect(0, 0, w, h);
+      const lm = packed.map(p => ({ x: p[0], y: p[1], z: p[2], visibility: p[3] == null ? 1 : p[3] }));
+      if (window.drawConnectors && window.POSE_CONNECTIONS) {
+        drawConnectors(c, lm, POSE_CONNECTIONS, { color: "#72f7ff", lineWidth: 4 });
+        drawLandmarks(c, lm, { color: "#ffd166", lineWidth: 1, radius: 3 });
+      }
+    }
+    async function playRecord(id) {
+      const rec = await dbGetFull(id);
+      if (!rec || !rec.frames.length) { alert("這筆沒有可重播的骨架資料。"); return; }
+      replayCard.hidden = false;
+      replayCanvas.width = (rec.meta.video && rec.meta.video.width) || 640;
+      replayCanvas.height = (rec.meta.video && rec.meta.video.height) || 480;
+      replayTitle.textContent = rec.meta.name || "(未命名)";
+      pb.rec = rec; pb.frames = rec.frames; pb.idx = 0; pb.speed = 1; pb.pausedT = 0;
+      pb.playing = true; pb.startWall = performance.now();
+      replayPlayPause.textContent = "暫停"; replaySpeed.textContent = "1.0×";
+      cancelAnimationFrame(pb.raf);
+      pb.raf = requestAnimationFrame(playbackTick);
+      replayCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    function playbackTick() {
+      if (!pb.rec) return;
+      const frames = pb.frames, dur = frames[frames.length-1].t || 1;
+      if (pb.playing) {
+        const elapsed = (performance.now() - pb.startWall) * pb.speed;
+        while (pb.idx < frames.length-1 && frames[pb.idx+1].t <= elapsed) pb.idx++;
+        const cur = frames[pb.idx].t;
+        drawReplayFrame(frames[pb.idx].lm);
+        replayProgress.value = Math.round(cur / dur * 1000);
+        replayTime.textContent = (cur/1000).toFixed(1) + "s / " + (dur/1000).toFixed(1) + "s";
+        if (cur >= dur) { pb.startWall = performance.now(); pb.idx = 0; }  // loop
+      }
+      pb.raf = requestAnimationFrame(playbackTick);
+    }
+    function togglePlayPause() {
+      if (!pb.rec) return;
+      if (pb.playing) { pb.playing = false; pb.pausedT = pb.frames[pb.idx].t; replayPlayPause.textContent = "播放"; }
+      else { pb.playing = true; pb.startWall = performance.now() - pb.pausedT / pb.speed; replayPlayPause.textContent = "暫停"; }
+    }
+    function cycleSpeed() {
+      if (!pb.rec) return;
+      const order = [0.5, 1, 2]; pb.speed = order[(order.indexOf(pb.speed) + 1) % order.length];
+      replaySpeed.textContent = pb.speed.toFixed(1) + "×";
+      const cur = pb.frames[pb.idx].t;
+      if (pb.playing) pb.startWall = performance.now() - cur / pb.speed; else pb.pausedT = cur;
+    }
+    function closeReplay() {
+      pb.playing = false; pb.rec = null; cancelAnimationFrame(pb.raf);
+      replayCard.hidden = true;
+    }
+    replayPlayPause.addEventListener("click", togglePlayPause);
+    replaySpeed.addEventListener("click", cycleSpeed);
+    replayClose.addEventListener("click", closeReplay);
+    replayProgress.addEventListener("input", () => {
+      if (!pb.rec) return;
+      const frames = pb.frames, dur = frames[frames.length-1].t || 1;
+      const target = replayProgress.value / 1000 * dur;
+      let i = 0; while (i < frames.length-1 && frames[i+1].t <= target) i++;
+      pb.idx = i; pb.pausedT = frames[i].t; pb.startWall = performance.now() - frames[i].t / pb.speed;
+      drawReplayFrame(frames[i].lm);
+      replayTime.textContent = (frames[i].t/1000).toFixed(1) + "s / " + (dur/1000).toFixed(1) + "s";
+    });
+
+    /* ---------- 分頁切換 ---------- */
+    function setTab(name) {
+      currentTab = name;
+      ["kick", "poomsae", "compare"].forEach(t => {
+        const panel = document.getElementById("tab-" + t);
+        if (panel) panel.hidden = (t !== name);
+      });
+      document.getElementById("tabBtnKick").classList.toggle("active", name === "kick");
+      document.getElementById("tabBtnPoomsae").classList.toggle("active", name === "poomsae");
+      document.getElementById("tabBtnCompare").classList.toggle("active", name === "compare");
+      if (name !== "compare") cancelAnimationFrame(cmp.raf);
+      if (name === "poomsae") { refreshPmList(); if (!cameraOn) drawPoomsaeIdle(); updatePmCameraUI(); }
+      if (name === "compare") { refreshCmpSelects(); }
+    }
+
+    // 品勢分頁綁定
+    pmCameraBtn.addEventListener("click", openCamera);
+    pmStartBtn.addEventListener("click", startPoomsaeRec);
+    pmStopBtn.addEventListener("click", stopPoomsaeRec);
+    pmSaveBtn.addEventListener("click", savePending);
+    pmCancelBtn.addEventListener("click", () => { pmForm.classList.add("hidden"); pmPendingRecord = null; setPmStatus("ok", "已捨棄這次錄製"); });
+    pmExportAllBtn.addEventListener("click", exportAll);
+    pmImportBtn.addEventListener("click", () => pmImportFile.click());
+    pmImportFile.addEventListener("change", e => { if (e.target.files[0]) importJSON(e.target.files[0]); e.target.value = ""; });
+    document.getElementById("tabBtnKick").addEventListener("click", () => setTab("kick"));
+    document.getElementById("tabBtnPoomsae").addEventListener("click", () => setTab("poomsae"));
+    document.getElementById("tabBtnCompare").addEventListener("click", () => setTab("compare"));
+
+    /* ==========================================================
+       範本對照（疊圖比對）
+       - 標準範本（綠）+ 對照來源（紅，即時鏡頭或另一筆錄製）
+       - 皆以髖中心對齊、軀幹長縮放 → 不受身高/站位影響
+       - 即時算姿勢差異（正規化像素距離）
+    ========================================================== */
+    const cmpCanvas = document.getElementById("cmpCanvas");
+    const cmpCtx = cmpCanvas.getContext("2d");
+    const cmpStatus = document.getElementById("cmpStatus");
+    const cmpTemplateSel = document.getElementById("cmpTemplateSel");
+    const cmpSourceSel = document.getElementById("cmpSourceSel");
+    const cmpApplyBtn = document.getElementById("cmpApplyBtn");
+    const cmpRefreshBtn = document.getElementById("cmpRefreshBtn");
+    const cmpPlayPause = document.getElementById("cmpPlayPause");
+    const cmpSpeed = document.getElementById("cmpSpeed");
+    const cmpError = document.getElementById("cmpError");
+    const cmpStop = document.getElementById("cmpStop");
+
+    let cmp = { tpl: null, stu: null, mode: "live", playing: true, raf: 0, startWall: 0, speed: 1, idx: 0 };
+
+    // 把一組 landmarks（packed 陣列或物件）轉成「對齊置中、軀幹長縮放」後的畫布像素點
+    function poseToPixels(lm, cw, ch) {
+      const get = i => Array.isArray(lm[i])
+        ? { x: lm[i][0], y: lm[i][1], v: lm[i][3] }
+        : { x: lm[i].x, y: lm[i].y, v: lm[i].visibility };
+      const L = Array.from({ length: 33 }, (_, i) => get(i));
+      const hip = { x: (L[23].x + L[24].x) / 2, y: (L[23].y + L[24].y) / 2 };
+      const sho = { x: (L[11].x + L[12].x) / 2, y: (L[11].y + L[12].y) / 2 };
+      const torsoPx = Math.hypot((sho.x - hip.x) * cw, (sho.y - hip.y) * ch) || 1;
+      const k = (ch * 0.22) / torsoPx;     // 統一軀幹長 = 22% 畫布高
+      const cx = cw * 0.5, cy = ch * 0.5;
+      return L.map(p => ({
+        x: cx + (p.x - hip.x) * cw * k,
+        y: cy + (p.y - hip.y) * ch * k,
+        v: p.v == null ? 1 : p.v
+      }));
+    }
+    function drawPixelSkeleton(c, pts, color) {
+      c.save();
+      c.strokeStyle = color; c.lineWidth = 4; c.lineCap = "round";
+      c.shadowColor = color; c.shadowBlur = 8;
+      const cons = window.POSE_CONNECTIONS || [];
+      cons.forEach(pair => {
+        const ai = (pair[0] !== undefined) ? pair[0] : pair.start;
+        const bi = (pair[1] !== undefined) ? pair[1] : pair.end;
+        const a = pts[ai], b = pts[bi];
+        if (!a || !b) return;
+        c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke();
+      });
+      c.shadowBlur = 0; c.fillStyle = color;
+      pts.forEach(p => { c.beginPath(); c.arc(p.x, p.y, 3, 0, Math.PI * 2); c.fill(); });
+      c.restore();
+    }
+    function poseError(a, b, ch) {
+      let s = 0, n = 0;
+      for (let i = 0; i < 33; i++) {
+        if ((a[i].v ?? 1) < 0.3 || (b[i].v ?? 1) < 0.3) continue;
+        s += Math.hypot(a[i].x - b[i].x, a[i].y - b[i].y); n++;
+      }
+      if (!n) return 999;
+      return (s / n) / (ch * 0.22) * 100;   // 以軀幹長正規化 → 百分比尺度
+    }
+
+    async function refreshCmpSelects() {
+      let metas = [];
+      try { metas = await dbListMeta(); } catch (_) {}
+      metas.sort((a, b) => (Number(b.meta.isTemplate) - Number(a.meta.isTemplate)) ||
+        (b.meta.createdAt || "").localeCompare(a.meta.createdAt || ""));
+      const opt = m => `<option value="${m.id}">${esc(m.meta.name || "未命名")}${m.meta.isTemplate ? "（標準）" : ""}</option>`;
+      cmpTemplateSel.innerHTML = metas.length ? metas.map(opt).join("") : `<option value="">（尚無錄製）</option>`;
+      cmpSourceSel.innerHTML = `<option value="live">即時鏡頭（攝影機）</option>` +
+        metas.map(m => `<option value="${m.id}">${esc(m.meta.name || "未命名")}</option>`).join("");
+    }
+
+    async function applyCompare() {
+      const tid = cmpTemplateSel.value;
+      if (!tid) { alert("請先到「品勢錄製」錄一筆並設為標準範本。"); return; }
+      cmp.tpl = await dbGetFull(tid);
+      if (!cmp.tpl || !cmp.tpl.frames.length) { alert("此範本沒有可用的骨架資料。"); return; }
+      const src = cmpSourceSel.value;
+      if (src === "live") {
+        cmp.mode = "live"; cmp.stu = null;
+        cmpStatus.textContent = "對照：即時鏡頭";
+        if (!cameraOn) { setPmStatus && null; await openCamera(); }
+      } else {
+        cmp.mode = "recording";
+        cmp.stu = await dbGetFull(src);
+        cmpStatus.textContent = "對照：錄製比對";
+      }
+      cmp.idx = 0; cmp.playing = true; cmp.startWall = performance.now(); cmp.speed = 1;
+      cmpPlayPause.textContent = "暫停"; cmpSpeed.textContent = "1.0×";
+      cancelAnimationFrame(cmp.raf);
+      cmp.raf = requestAnimationFrame(cmpTick);
+    }
+
+    function cmpTick() {
+      if (currentTab !== "compare" || !cmp.tpl) return;
+      const c = cmpCtx, w = cmpCanvas.width, h = cmpCanvas.height;
+      c.clearRect(0, 0, w, h);
+      c.fillStyle = "#050c17"; c.fillRect(0, 0, w, h);
+
+      const tf = cmp.tpl.frames, dur = tf[tf.length - 1].t || 1;
+      if (cmp.playing) {
+        const el = (performance.now() - cmp.startWall) * cmp.speed;
+        while (cmp.idx < tf.length - 1 && tf[cmp.idx + 1].t <= el) cmp.idx++;
+        if (tf[cmp.idx].t >= dur) { cmp.startWall = performance.now(); cmp.idx = 0; }
+      }
+      const tplPts = poseToPixels(tf[cmp.idx].lm, w, h);
+      drawPixelSkeleton(c, tplPts, "#55efc4");   // 綠 = 標準
+
+      let stuLm = null;
+      if (cmp.mode === "live") {
+        stuLm = latestLandmarks;
+      } else if (cmp.stu && cmp.stu.frames.length) {
+        const sf = cmp.stu.frames, sdur = sf[sf.length - 1].t || 1;
+        const prog = tf[cmp.idx].t / dur;        // 依進度百分比對齊兩段
+        const st = prog * sdur;
+        let i = 0; while (i < sf.length - 1 && sf[i + 1].t <= st) i++;
+        stuLm = sf[i].lm;
+      }
+      if (stuLm) {
+        const stuPts = poseToPixels(stuLm, w, h);
+        drawPixelSkeleton(c, stuPts, "#ff6b6b");  // 紅 = 學員/你
+        const err = poseError(tplPts, stuPts, h);
+        const sim = Math.max(0, Math.min(100, Math.round(100 - err)));
+        cmpError.textContent = `姿勢差異 ${err.toFixed(0)}（越低越接近）｜相似度 ${sim}%`;
+      } else {
+        cmpError.textContent = cmp.mode === "live" ? "請開啟攝影機並站到鏡頭前" : "—";
+      }
+      cmp.raf = requestAnimationFrame(cmpTick);
+    }
+
+    function cmpTogglePlay() {
+      if (!cmp.tpl) return;
+      cmp.playing = !cmp.playing;
+      cmpPlayPause.textContent = cmp.playing ? "暫停" : "播放";
+      if (cmp.playing) cmp.startWall = performance.now() - cmp.tpl.frames[cmp.idx].t / cmp.speed;
+    }
+    function cmpCycleSpeed() {
+      if (!cmp.tpl) return;
+      const order = [0.5, 1, 2];
+      cmp.speed = order[(order.indexOf(cmp.speed) + 1) % order.length];
+      cmpSpeed.textContent = cmp.speed.toFixed(1) + "×";
+      if (cmp.playing) cmp.startWall = performance.now() - cmp.tpl.frames[cmp.idx].t / cmp.speed;
+    }
+    function cmpStopFn() {
+      cmp.playing = false; cmp.tpl = null; cmp.stu = null;
+      cancelAnimationFrame(cmp.raf);
+      cmpCtx.clearRect(0, 0, cmpCanvas.width, cmpCanvas.height);
+      cmpCtx.fillStyle = "#050c17"; cmpCtx.fillRect(0, 0, cmpCanvas.width, cmpCanvas.height);
+      cmpStatus.textContent = "已停止";
+      cmpError.textContent = "—";
+    }
+
+    cmpApplyBtn.addEventListener("click", applyCompare);
+    cmpRefreshBtn.addEventListener("click", refreshCmpSelects);
+    cmpPlayPause.addEventListener("click", cmpTogglePlay);
+    cmpSpeed.addEventListener("click", cmpCycleSpeed);
+    cmpStop.addEventListener("click", cmpStopFn);
+
     /* ---------- 綁定 & 初始化 ---------- */
     cameraBtn.addEventListener("click", openCamera);
     analyzeBtn.addEventListener("click", startAnalyze);
@@ -765,6 +1579,7 @@
 
     initMetrics();
     drawIdleSkeleton();
+    drawPoomsaeIdle();
     renderHistory();
   </script>
 </body>
