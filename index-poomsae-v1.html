@@ -348,6 +348,9 @@
     .tpl-badge{ font-family:"Rajdhani",sans-serif; text-transform:uppercase; letter-spacing:.08em; background:var(--green); color:#03121A; box-shadow:0 0 12px rgba(0,255,198,.4); }
     .cap-bar,.footer-note,.mini,.history-meta{ font-family:"Rajdhani",sans-serif; }
     .rec-dot{ background:var(--red); box-shadow:0 0 16px var(--red); }
+
+    /* 移除「橫踢分析」分頁（品勢系統不需要）— 按鈕隱藏，底層共用攝影機程式保留 */
+    #tabBtnKick{ display:none !important; }
   </style>
 </head>
 
@@ -362,7 +365,7 @@
         AI 骨架分析版｜MediaPipe Pose
       </div>
       <h1>Taekwondo AI Coach</h1>
-      <p class="subtitle">橫踢動作即時骨架分析（33 點關鍵點 + 真實角度計算）</p>
+      <p class="subtitle">品勢 AI 評分系統｜動作錄製 · 範本對照 · 自動評分 · 結構評分</p>
     </section>
 
     <!-- 分頁切換 -->
@@ -2200,6 +2203,7 @@
     drawIdleSkeleton();
     drawPoomsaeIdle();
     renderHistory();
+    setTab("poomsae");   // 預設改成「動作錄製」，隱藏橫踢分頁
     seedBuiltins();
   </script>
 </body>
