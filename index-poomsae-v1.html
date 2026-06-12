@@ -267,6 +267,7 @@
       <button class="tab-btn" id="tabBtnPoomsae" data-tab="poomsae">動作錄製</button>
       <button class="tab-btn" id="tabBtnCompare" data-tab="compare">範本對照</button>
       <button class="tab-btn" id="tabBtnScore" data-tab="score">自動評分</button>
+      <button class="tab-btn" id="tabBtnStruct" data-tab="struct">結構評分</button>
     </div>
 
     <!-- 分頁：橫踢分析（原功能，未更動） -->
@@ -530,6 +531,43 @@
         </div>
       </section>
     </div><!-- /tab-score -->
+
+    <!-- 分頁：結構評分（免範本，單支影片客觀結構分） -->
+    <div id="tab-struct" class="tab-panel" hidden>
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">結構評分（免範本）</h2>
+          <div class="status" id="structStatus">選一筆錄製即可評分</div>
+        </div>
+
+        <div class="pm-form" style="border-top:none">
+          <div class="row">
+            <label style="flex:2">選擇錄製
+              <select id="structSel"></select>
+            </label>
+            <button class="muted-btn" id="structRefreshBtn" style="flex:1;align-self:end">重新整理</button>
+          </div>
+          <button class="btn-analyze" id="structRunBtn">開始結構評分</button>
+        </div>
+
+        <div class="score-panel">
+          <div class="total-score">
+            <div class="score-circle"><div class="score-number" id="structTotal">--</div></div>
+            <div class="score-copy">
+              <h2>結構總分 <span id="structGrade" style="font-size:15px;color:var(--muted)"></span></h2>
+              <p id="structCopy">不需要標準範本——單支品勢影片就能算的客觀結構分：重心穩定、流暢度、演武線閉合、動靜節奏、起收式一致。</p>
+            </div>
+          </div>
+          <div id="structMetrics"></div>
+        </div>
+
+        <div class="feedback">
+          <h3>AI 教練回饋</h3>
+          <ul class="feedback-list" id="structFeedback"><li>尚未評分。</li></ul>
+        </div>
+        <div class="cap-bar">＊此為「免範本」客觀結構指標（藍圖 §11 MVP）：只看動作本身的物理結構，不跟標準範本比。要跟標準比請用「範本對照／自動評分」。</div>
+      </section>
+    </div><!-- /tab-struct -->
 
     <div class="footer-note">
       Taekwondo AI Coach｜純前端 + MediaPipe Pose｜骨架資料只在你的裝置上運算，不上傳
@@ -1447,7 +1485,7 @@
     /* ---------- 分頁切換 ---------- */
     function setTab(name) {
       currentTab = name;
-      ["kick", "poomsae", "compare", "score"].forEach(t => {
+      ["kick", "poomsae", "compare", "score", "struct"].forEach(t => {
         const panel = document.getElementById("tab-" + t);
         if (panel) panel.hidden = (t !== name);
       });
@@ -1455,10 +1493,12 @@
       document.getElementById("tabBtnPoomsae").classList.toggle("active", name === "poomsae");
       document.getElementById("tabBtnCompare").classList.toggle("active", name === "compare");
       document.getElementById("tabBtnScore").classList.toggle("active", name === "score");
+      document.getElementById("tabBtnStruct").classList.toggle("active", name === "struct");
       if (name !== "compare") cancelAnimationFrame(cmp.raf);
       if (name === "poomsae") { refreshPmList(); if (!cameraOn) drawPoomsaeIdle(); updatePmCameraUI(); }
       if (name === "compare") { refreshCmpSelects(); }
       if (name === "score") { refreshScoreSelects(); }
+      if (name === "struct") { refreshStructSelect(); }
     }
 
     // 品勢分頁綁定
@@ -1825,6 +1865,154 @@
     scoreRefreshBtn.addEventListener("click", refreshScoreSelects);
     document.getElementById("tabBtnScore").addEventListener("click", () => setTab("score"));
     initScoreMetrics();
+
+    /* ==========================================================
+       結構評分（免範本）— 藍圖 §11 MVP 的 5 個客觀結構指標
+       單支錄製即可算，不需標準範本：
+         重心垂直穩定 / 動作流暢度 / 演武線閉合 / 動靜節奏 / 起收式一致
+       權重：重心0.25 流暢0.22 演武線0.20 節奏0.18 起收0.15
+    ========================================================== */
+    const STRUCT_DIMS = ["重心穩定","動作流暢度","演武線閉合","動靜節奏","起收式一致"];
+    const STRUCT_W = { "重心穩定":0.25, "動作流暢度":0.22, "演武線閉合":0.20, "動靜節奏":0.18, "起收式一致":0.15 };
+    const SJ = [11,12,13,14,15,16,23,24,25,26,27,28]; // 評估用關節
+    const structSel = document.getElementById("structSel");
+    const structRunBtn = document.getElementById("structRunBtn");
+    const structRefreshBtn = document.getElementById("structRefreshBtn");
+    const structStatus = document.getElementById("structStatus");
+    const structTotalEl = document.getElementById("structTotal");
+    const structGradeEl = document.getElementById("structGrade");
+    const structCopy = document.getElementById("structCopy");
+    const structMetricsEl = document.getElementById("structMetrics");
+    const structFeedback = document.getElementById("structFeedback");
+
+    // 結構分用幾何（packed lm 陣列；x 乘 ASPECT 校正）
+    function sHip(lm){ return { x:((lm[23][0]+lm[24][0])/2)*ASPECT, y:(lm[23][1]+lm[24][1])/2 }; }
+    function sFeet(lm){ return { x:((lm[27][0]+lm[28][0])/2)*ASPECT, y:(lm[27][1]+lm[28][1])/2 }; }
+    function sTorso(lm){ const sx=(lm[11][0]+lm[12][0])/2*ASPECT, sy=(lm[11][1]+lm[12][1])/2,
+      hx=(lm[23][0]+lm[24][0])/2*ASPECT, hy=(lm[23][1]+lm[24][1])/2; return Math.hypot(sx-hx,sy-hy)||1e-3; }
+    function sBodyH(lm){ const ankY=Math.max(lm[27][1],lm[28][1]); const headY=lm[0][1]; return Math.max(1e-3, ankY-headY); }
+    function sShoulderDeg(lm){ return Math.atan2(lm[12][1]-lm[11][1],(lm[12][0]-lm[11][0])*ASPECT)*180/Math.PI; }
+    // 兩格之間「整體速度」= 評估關節平均位移 / dt（以軀幹長正規化）
+    function sSpeed(a,b,dt,torso){ let s=0,n=0; SJ.forEach(i=>{ const dx=(b[i][0]-a[i][0])*ASPECT, dy=b[i][1]-a[i][1]; s+=Math.hypot(dx,dy); n++; }); return (s/n)/torso/dt; }
+    function smooth(arr,w){ // 簡易移動平均（代替 Savitzky-Golay）
+      const out=arr.slice(); const h=Math.floor(w/2);
+      for(let i=0;i<arr.length;i++){ let s=0,c=0; for(let j=-h;j<=h;j++){ const k=i+j; if(k>=0&&k<arr.length){s+=arr[k];c++;} } out[i]=s/c; }
+      return out;
+    }
+    function pctDown(v,good,bad){ if(v<=good)return 100; if(v>=bad)return 40; return Math.round(100-(v-good)/(bad-good)*60); }
+    function structGrade(t){ return t>=90?"S（卓越）":t>=80?"A（優秀）":t>=70?"B（良好）":t>=60?"C（普通）":"D（待加強）"; }
+
+    function computeStructMetrics(frames){
+      if(frames.length<8) return null;
+      const torsoMed = median(frames.map(f=>sTorso(f.lm)));
+      const Href = median(frames.map(f=>sBodyH(f.lm)));
+
+      // 1) 重心垂直穩定：σ(髖 y)/身高（越小越穩）
+      const hipYs = frames.map(f=>sHip(f.lm).y);
+      const balStd = std(hipYs)/Href;
+      const balance = pctDown(balStd, 0.012, 0.09);
+
+      // 速度序列（平滑後）
+      let speeds=[];
+      for(let i=1;i<frames.length;i++){ const dt=Math.max(1,(frames[i].t-frames[i-1].t))/1000;
+        speeds.push(sSpeed(frames[i-1].lm, frames[i].lm, dt, torsoMed)); }
+      speeds = smooth(speeds,3);
+
+      // 2) 動作流暢度：jerk 代理（速度的二階差分大小）+ 速度峰數
+      const acc = []; for(let i=1;i<speeds.length;i++) acc.push(speeds[i]-speeds[i-1]);
+      const jerk = []; for(let i=1;i<acc.length;i++) jerk.push(Math.abs(acc[i]-acc[i-1]));
+      const meanJerk = jerk.length? jerk.reduce((a,b)=>a+b,0)/jerk.length : 0;
+      const flow = pctDown(meanJerk, 0.6, 4.5);
+
+      // 3) 演武線閉合：起手 vs 結束 雙腳中點位移 / 身高
+      const feet0=sFeet(frames[0].lm), feetN=sFeet(frames[frames.length-1].lm);
+      const closeErr = Math.hypot(feetN.x-feet0.x, feetN.y-feet0.y)/Href;
+      const closure = pctDown(closeErr, 0.08, 0.5);
+
+      // 4) 動靜節奏：偵測停頓段(定式)＋移動時間比是否在合理帶
+      const eps = median(speeds)*0.45 + 1e-4;
+      let moving=0, still=0, pauseSegs=0, inPause=false, pauseLen=0;
+      const dtAvg = (frames[frames.length-1].t-frames[0].t)/1000/Math.max(1,speeds.length);
+      speeds.forEach(v=>{ if(v<eps){ still++; pauseLen+=dtAvg; if(!inPause){inPause=true;} }
+        else { moving++; if(inPause && pauseLen>=0.25) pauseSegs++; inPause=false; pauseLen=0; } });
+      if(inPause && pauseLen>=0.25) pauseSegs++;
+      const movRatio = moving/Math.max(1,moving+still);
+      const ratioScore = (movRatio>=0.4 && movRatio<=0.85) ? 100 : pctDown(Math.abs(movRatio-0.62), 0.1, 0.45);
+      const segScore = Math.min(100, 50 + pauseSegs*12); // 有清楚動靜交替加分
+      const rhythm = Math.round(ratioScore*0.5 + segScore*0.5);
+
+      // 5) 起收式一致：方向差 + 首末姿勢距離
+      const headDiff = Math.abs(sShoulderDeg(frames[frames.length-1].lm)-sShoulderDeg(frames[0].lm));
+      const poseDiff = frameDistPacked(frames[0].lm, frames[frames.length-1].lm, torsoMed);
+      const startend = Math.round(pctDown(headDiff,8,40)*0.5 + pctDown(poseDiff,0.06,0.5)*0.5);
+
+      const dims = {"重心穩定":balance,"動作流暢度":flow,"演武線閉合":closure,"動靜節奏":rhythm,"起收式一致":startend};
+      const total = Math.round(STRUCT_DIMS.reduce((a,n)=>a+dims[n]*STRUCT_W[n],0));
+      return { dims, total, info:{ balStd:balStd.toFixed(3), closeErr:closeErr.toFixed(3), pauseSegs, movRatio:movRatio.toFixed(2), frames:frames.length } };
+    }
+    // 首末姿勢距離（髖中心對齊、軀幹長正規化）
+    function frameDistPacked(a,b,torso){
+      const ha=sHip(a), hb=sHip(b); let s=0,n=0;
+      SJ.forEach(i=>{ const ax=(a[i][0]*ASPECT-ha.x)/torso, ay=(a[i][1]-ha.y)/torso,
+        bx=(b[i][0]*ASPECT-hb.x)/torso, by=(b[i][1]-hb.y)/torso; s+=Math.hypot(ax-bx,ay-by); n++; });
+      return n? s/n : 1;
+    }
+    function median(arr){ const a=arr.slice().sort((x,y)=>x-y); const m=a.length>>1; return a.length? (a.length%2?a[m]:(a[m-1]+a[m])/2):0; }
+    function std(arr){ const m=arr.reduce((a,b)=>a+b,0)/Math.max(1,arr.length); return Math.sqrt(arr.reduce((a,b)=>a+(b-m)*(b-m),0)/Math.max(1,arr.length)); }
+
+    function initStructMetrics(){
+      structMetricsEl.innerHTML = STRUCT_DIMS.map(n=>`
+        <div class="metric"><div class="metric-top"><span>${n}（權重 ${Math.round(STRUCT_W[n]*100)}%）</span><strong id="stm-${n}">--</strong></div>
+        <div class="bar"><div class="bar-fill" id="stb-${n}"></div></div>`).join("");
+    }
+    async function refreshStructSelect(){
+      let metas=[]; try{ metas=await dbListMeta(); }catch(_){}
+      metas.sort((a,b)=> (b.meta.createdAt||"").localeCompare(a.meta.createdAt||""));
+      structSel.innerHTML = metas.length ? metas.map(m=>`<option value="${m.id}">${esc(m.meta.name||"未命名")}${m.meta.isTemplate?"（標準）":""}</option>`).join("")
+        : `<option value="">（尚無錄製）</option>`;
+    }
+    async function runStructScore(){
+      const id=structSel.value;
+      if(!id){ alert("請先到「動作錄製」錄一筆，或匯入一筆錄製。"); return; }
+      structStatus.textContent="評分中…"; structRunBtn.disabled=true;
+      try{
+        const rec=await dbGetFull(id);
+        if(!rec?.frames?.length){ alert("此錄製沒有骨架資料。"); return; }
+        const r=computeStructMetrics(rec.frames);
+        if(!r){ alert("影格太少，無法評分。"); return; }
+        structTotalEl.textContent=r.total;
+        const g=structGrade(r.total);
+        structGradeEl.textContent="· "+g;
+        const gc=r.total>=80?"var(--green)":r.total>=70?"var(--cyan)":r.total>=60?"var(--yellow)":"var(--red)";
+        structTotalEl.style.color=gc;
+        STRUCT_DIMS.forEach(n=>{ const v=clampPct(r.dims[n]);
+          document.getElementById("stm-"+n).textContent=v;
+          const bar=document.getElementById("stb-"+n); bar.style.width=v+"%";
+          bar.style.background = v>=80?"var(--green)":v>=65?"var(--cyan)":v>=50?"var(--yellow)":"var(--red)";
+        });
+        structCopy.textContent=`「${rec.meta.name||"未命名"}」客觀結構分。取樣 ${r.info.frames} 格，偵測 ${r.info.pauseSegs} 個停頓(定式)，移動時間比 ${r.info.movRatio}。`;
+        // 回饋
+        const arr=STRUCT_DIMS.map(n=>({n,v:r.dims[n]})).sort((a,b)=>a.v-b.v);
+        const tip={
+          "重心穩定":"重心上下起伏偏大，加強核心與步法落地穩定，避免身體上下晃。",
+          "動作流暢度":"動作有頓挫/抖動，放慢分解、把每招銜接練順。",
+          "演武線閉合":"沒回到起點，注意走位與最後一步落點。",
+          "動靜節奏":"動靜層次不分明，該停的定式要停滿、該快要乾脆。",
+          "起收式一致":"起式與收式姿勢/方向不一致，收式要回到預備式同樣位置與朝向。"
+        };
+        const fb=[];
+        fb.push(`總分 ${r.total}（${g}）。最強：${arr[arr.length-1].n}（${clampPct(arr[arr.length-1].v)}）。`);
+        fb.push(`最需加強：${arr[0].n}（${clampPct(arr[0].v)}）— ${tip[arr[0].n]}`);
+        if(arr[1].v<75) fb.push(`其次：${arr[1].n}（${clampPct(arr[1].v)}）— ${tip[arr[1].n]}`);
+        structFeedback.innerHTML=fb.map(t=>`<li>${esc(t)}</li>`).join("");
+        structStatus.textContent="評分完成";
+      }catch(e){ console.error(e); alert("評分失敗："+e); structStatus.textContent="評分失敗"; }
+      finally{ structRunBtn.disabled=false; }
+    }
+    structRunBtn.addEventListener("click", runStructScore);
+    structRefreshBtn.addEventListener("click", refreshStructSelect);
+    document.getElementById("tabBtnStruct").addEventListener("click", ()=>setTab("struct"));
+    initStructMetrics();
 
     /* ---------- 綁定 & 初始化 ---------- */
     cameraBtn.addEventListener("click", openCamera);
