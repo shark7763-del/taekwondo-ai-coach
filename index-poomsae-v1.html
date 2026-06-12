@@ -375,6 +375,7 @@
       <button class="tab-btn" id="tabBtnCompare" data-tab="compare">範本對照</button>
       <button class="tab-btn" id="tabBtnScore" data-tab="score">自動評分</button>
       <button class="tab-btn" id="tabBtnStruct" data-tab="struct">結構評分</button>
+      <button class="tab-btn" id="tabBtnJudge" data-tab="judge">即時評判</button>
     </div>
 
     <!-- 分頁：橫踢分析（原功能，未更動） -->
@@ -676,6 +677,63 @@
       </section>
     </div><!-- /tab-struct -->
 
+    <!-- 分頁：即時評判（開相機→選標準型→打完整套→馬上出正確度） -->
+    <div id="tab-judge" class="tab-panel" hidden>
+      <section class="layout">
+        <!-- 相機 + 操作 -->
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title">即時品勢評判</h2>
+            <div class="status warn" id="judgeStatus">選標準型並開啟攝影機</div>
+          </div>
+          <div class="bd" style="padding:15px">
+            <div class="field" style="display:grid;gap:6px;margin-bottom:12px">
+              <label style="font-size:13px;color:var(--muted)">要評判的標準型</label>
+              <select id="judgeTplSel"></select>
+            </div>
+            <div class="camera-box">
+              <div class="camera-label">即時評判</div>
+              <canvas id="judgeCanvas" width="640" height="480"></canvas>
+              <div class="rec-indicator" id="judgeRecInd"
+                   style="position:absolute;left:16px;bottom:14px;z-index:3;background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.12);border-radius:12px;backdrop-filter:blur(6px)">
+                <span class="rec-dot" id="judgeRecDot"></span>
+                <span id="judgeRecText">未評判</span>
+              </div>
+            </div>
+            <div class="controls">
+              <button class="btn-camera" id="judgeCamBtn">開啟攝影機</button>
+              <button class="btn-analyze" id="judgeStartBtn" disabled>開始評判</button>
+              <button class="btn-reset" id="judgeStopBtn" disabled>結束並評分</button>
+              <button class="muted-btn" id="judgeRefreshBtn">重新整理範本</button>
+            </div>
+            <p class="cap-bar" style="padding:10px 2px 0">開啟攝影機 → 選太極型 → 按「開始評判」→ 從起式打到收式 → 按「結束並評分」，系統會跟標準型 DTW 對齊後給正確度與逐定式。</p>
+          </div>
+        </section>
+
+        <!-- 評判結果 -->
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title">正確度評分</h2>
+            <div class="status" id="judgeResultPill">尚未評判</div>
+          </div>
+          <div class="score-panel">
+            <div class="total-score">
+              <div class="score-circle"><div class="score-number" id="judgeTotal">--</div></div>
+              <div class="score-copy">
+                <h2>正確度 <span id="judgeGrade" style="font-size:15px;color:var(--muted)"></span></h2>
+                <p id="judgeCopy">開相機、選標準型、打完整套後按「結束並評分」，這裡會顯示與標準型的正確度。</p>
+              </div>
+            </div>
+            <div id="judgeMetrics"></div>
+          </div>
+          <div class="feedback">
+            <h3>逐定式明細</h3>
+            <div id="judgeStances"><div class="empty">尚未評判。</div></div>
+          </div>
+        </section>
+      </section>
+    </div><!-- /tab-judge -->
+
     <div class="footer-note">
       Taekwondo AI Coach｜純前端 + MediaPipe Pose｜骨架資料只在你的裝置上運算，不上傳
     </div>
@@ -834,6 +892,7 @@
       latestLandmarks = results.poseLandmarks || null;
       if (currentTab === "poomsae") { onPoseResultsPoomsae(results); return; }
       if (currentTab === "compare") { return; }   // 對照分頁由 cmpTick 自行繪製疊圖
+      if (currentTab === "judge") { onPoseResultsJudge(results); return; }
 
       ctx.save();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -891,6 +950,10 @@
             poomsaeCanvas.width = video.videoWidth;
             poomsaeCanvas.height = video.videoHeight;
           }
+          if (typeof judgeCanvas !== "undefined" && judgeCanvas) {
+            judgeCanvas.width = video.videoWidth;
+            judgeCanvas.height = video.videoHeight;
+          }
           VIDEO_W = video.videoWidth; VIDEO_H = video.videoHeight;
         }
 
@@ -901,6 +964,7 @@
         setStatus("ok", "攝影機運作中");
         cameraLabel.textContent = "Live Camera + AI 骨架";
         if (typeof updatePmCameraUI === "function") updatePmCameraUI();
+        if (typeof updateJudgeCameraUI === "function") updateJudgeCameraUI();
       } catch (err) {
         cameraBtn.disabled = false;
         setStatus("warn", "無法開啟攝影機");
@@ -1592,7 +1656,7 @@
     /* ---------- 分頁切換 ---------- */
     function setTab(name) {
       currentTab = name;
-      ["kick", "poomsae", "compare", "score", "struct"].forEach(t => {
+      ["kick", "poomsae", "compare", "score", "struct", "judge"].forEach(t => {
         const panel = document.getElementById("tab-" + t);
         if (panel) panel.hidden = (t !== name);
       });
@@ -1601,11 +1665,13 @@
       document.getElementById("tabBtnCompare").classList.toggle("active", name === "compare");
       document.getElementById("tabBtnScore").classList.toggle("active", name === "score");
       document.getElementById("tabBtnStruct").classList.toggle("active", name === "struct");
+      document.getElementById("tabBtnJudge").classList.toggle("active", name === "judge");
       if (name !== "compare") cancelAnimationFrame(cmp.raf);
       if (name === "poomsae") { refreshPmList(); if (!cameraOn) drawPoomsaeIdle(); updatePmCameraUI(); }
       if (name === "compare") { refreshCmpSelects(); }
       if (name === "score") { refreshScoreSelects(); }
       if (name === "struct") { refreshStructSelect(); }
+      if (name === "judge") { refreshJudgeSelects(); if (!cameraOn) drawJudgeIdle(); updateJudgeCameraUI(); }
     }
 
     // 品勢分頁綁定
@@ -2142,6 +2208,164 @@
     structRefreshBtn.addEventListener("click", refreshStructSelect);
     document.getElementById("tabBtnStruct").addEventListener("click", ()=>setTab("struct"));
     initStructMetrics();
+
+    /* ==========================================================
+       即時評判（一鍵）：開相機 → 選標準型 → 開始評判(錄) → 結束 → DTW 評分
+       複用 scoreResample/scoreNormPoints/scoreDTW/scoreDetectStances/
+       computeFlowScore/mapPct/clampPct/SCORE_N/buildSummary。
+    ========================================================== */
+    const JUDGE_DIMS = ["動作準確度","定式到位","流暢度","節奏一致","回正(回原點)"];
+    const judgeCanvas = document.getElementById("judgeCanvas");
+    const judgeCtx = judgeCanvas.getContext("2d");
+    const judgeTplSel = document.getElementById("judgeTplSel");
+    const judgeStatus = document.getElementById("judgeStatus");
+    const judgeCamBtn = document.getElementById("judgeCamBtn");
+    const judgeStartBtn = document.getElementById("judgeStartBtn");
+    const judgeStopBtn = document.getElementById("judgeStopBtn");
+    const judgeRefreshBtn = document.getElementById("judgeRefreshBtn");
+    const judgeRecDot = document.getElementById("judgeRecDot");
+    const judgeRecText = document.getElementById("judgeRecText");
+    const judgeResultPill = document.getElementById("judgeResultPill");
+    const judgeTotalEl = document.getElementById("judgeTotal");
+    const judgeGradeEl = document.getElementById("judgeGrade");
+    const judgeCopy = document.getElementById("judgeCopy");
+    const judgeMetricsEl = document.getElementById("judgeMetrics");
+    const judgeStancesEl = document.getElementById("judgeStances");
+
+    let judging = false, judgeFrames = [], judgeStartT = 0, judgeLastSample = 0, judgeTimer = null;
+
+    function setJudgeStatus(kind, text){ judgeStatus.className = "status" + (kind==="ok"?"":" "+kind); judgeStatus.textContent = text; }
+    function updateJudgeCameraUI(){
+      if(cameraOn){ judgeStartBtn.disabled = false; judgeCamBtn.textContent = "攝影機已開啟"; judgeCamBtn.disabled = true;
+        if(judgeStatus.textContent.indexOf("開啟攝影機")>=0) setJudgeStatus("ok","攝影機運作中（請固定機位）"); }
+    }
+    function drawJudgeIdle(){
+      const w=judgeCanvas.width,h=judgeCanvas.height;
+      judgeCtx.clearRect(0,0,w,h); judgeCtx.fillStyle="#050c17"; judgeCtx.fillRect(0,0,w,h);
+      judgeCtx.fillStyle="#5be6ff"; judgeCtx.font="bold 16px Microsoft JhengHei";
+      judgeCtx.fillText("選標準型 → 開啟攝影機 → 開始評判", w*0.1, h*0.5);
+    }
+    function onPoseResultsJudge(results){
+      const c=judgeCtx, w=judgeCanvas.width, h=judgeCanvas.height;
+      c.save(); c.clearRect(0,0,w,h);
+      if(results.image) c.drawImage(results.image,0,0,w,h);
+      const lm=results.poseLandmarks;
+      if(lm){
+        const col=judging?"#ff5d6c":"#5be6ff";
+        if(window.drawConnectors && window.POSE_CONNECTIONS){
+          drawConnectors(c, lm, POSE_CONNECTIONS, {color:col,lineWidth:4});
+          drawLandmarks(c, lm, {color:"#ffd166",lineWidth:1,radius:3});
+        }
+        if(judging){
+          const now=performance.now();
+          if(now-judgeLastSample >= 1000/REC_FPS){
+            judgeFrames.push({ t:Math.round(now-judgeStartT), lm: packLandmarks(lm) });
+            judgeLastSample = now;
+          }
+        }
+      } else {
+        c.fillStyle="rgba(255,93,108,.9)"; c.font="bold 16px Microsoft JhengHei";
+        c.fillText("偵測不到人體，請全身入鏡", 30, 38);
+      }
+      c.restore();
+    }
+
+    async function refreshJudgeSelects(){
+      let metas=[]; try{ metas=await dbListMeta(); }catch(_){}
+      metas = metas.filter(m=>m.meta.isTemplate);   // 只列標準範本
+      metas.sort((a,b)=> (a.meta.poomsaeType||"").localeCompare(b.meta.poomsaeType||""));
+      judgeTplSel.innerHTML = metas.length ? metas.map(m=>`<option value="${m.id}">${esc(m.meta.name||"未命名")}</option>`).join("")
+        : `<option value="">（尚無標準範本，請先匯入）</option>`;
+    }
+
+    function initJudgeMetrics(){
+      judgeMetricsEl.innerHTML = JUDGE_DIMS.map(n=>`
+        <div class="metric"><div class="metric-top"><span>${n}</span><strong id="jm-${n}">--</strong></div>
+        <div class="bar"><div class="bar-fill" id="jb-${n}"></div></div>`).join("");
+    }
+
+    function startJudge(){
+      if(!cameraOn){ alert("請先開啟攝影機。"); return; }
+      if(!judgeTplSel.value){ alert("請先選一個標準型（沒有的話到動作錄製匯入）。"); return; }
+      judgeFrames=[]; judging=true; judgeStartT=performance.now(); judgeLastSample=0;
+      judgeStartBtn.disabled=true; judgeStopBtn.disabled=false;
+      judgeRecDot.style.display="inline-block";
+      judgeTimer=setInterval(()=>{ const s=((performance.now()-judgeStartT)/1000).toFixed(1);
+        judgeRecText.textContent="評判中 "+s+"s｜"+judgeFrames.length+" 格"; }, 150);
+      setJudgeStatus("busy","評判中…請從起式打到收式");
+    }
+    async function stopJudge(){
+      if(!judging) return;
+      judging=false; clearInterval(judgeTimer); judgeTimer=null;
+      judgeStartBtn.disabled=false; judgeStopBtn.disabled=true;
+      judgeRecDot.style.display="none"; judgeRecText.textContent="未評判";
+      if(judgeFrames.length<10){ setJudgeStatus("warn","錄到的影格太少"); alert("評判時間太短，請完整打完一套再按結束。"); return; }
+      setJudgeStatus("busy","評分中…"); judgeResultPill.className="pill"; judgeResultPill.textContent="計算中…";
+      try{
+        const tpl = await dbGetFull(judgeTplSel.value);
+        if(!tpl?.frames?.length){ alert("標準型沒有骨架資料。"); return; }
+        const summary = buildSummary(judgeFrames);
+        const res = computeMatchScore(tpl.frames, judgeFrames, summary);
+        if(!res){ alert("資料不足，無法評分。"); return; }
+        renderJudge(res, tpl);
+        setJudgeStatus("ok","評判完成");
+      }catch(e){ console.error(e); alert("評分失敗："+e); setJudgeStatus("bad","評分失敗"); }
+    }
+
+    // 學員 frames vs 標準 frames → 正確度（複用自動評分的演算法）
+    function computeMatchScore(tplFrames, stuFrames, stuSummary){
+      if(!tplFrames.length || stuFrames.length<10) return null;
+      const tF=scoreResample(tplFrames,SCORE_N), sF=scoreResample(stuFrames,SCORE_N);
+      const tP=tF.map(f=>scoreNormPoints(f.lm)), sP=sF.map(f=>scoreNormPoints(f.lm));
+      const dtw=scoreDTW(tP,sP,0.1);
+      const accuracy=mapPct(dtw.meanDist,0.06,0.5);
+      const tpl2stu=new Array(SCORE_N).fill(null);
+      dtw.path.forEach(([i,j])=>{ tpl2stu[i]= (tpl2stu[i]==null)? j : Math.max(tpl2stu[i],j); });
+      for(let i=0;i<SCORE_N;i++) if(tpl2stu[i]==null) tpl2stu[i]=i;
+      const stances=scoreDetectStances(tP);
+      const stanceRows=stances.map(i=>{ const j=tpl2stu[i]; const d=scoreFrameDist(tP[i],sP[j]);
+        return { score:mapPct(d,0.06,0.55), tTime:tF[i].t, sTime:sF[j].t }; });
+      const stanceAvg=stanceRows.length?clampPct(stanceRows.reduce((a,r)=>a+r.score,0)/stanceRows.length):accuracy;
+      const flow=computeFlowScore(stuFrames);
+      let warp=0; dtw.path.forEach(([i,j])=>warp+=Math.abs(i/(SCORE_N-1)-j/(SCORE_N-1))); warp/=dtw.path.length;
+      const warpScore=clampPct(100-warp*260);
+      const tempoRatio=(sF[SCORE_N-1].t||1)/(tF[SCORE_N-1].t||1);
+      const tempoScore=clampPct(100-Math.abs(Math.log(tempoRatio))*180);
+      const rhythm=clampPct(warpScore*0.6+tempoScore*0.4);
+      const re=stuSummary?.displacement?.returnError;
+      const ret=(re==null)?75:mapPct(re,0.12,0.6);
+      const total=clampPct(accuracy*0.30+stanceAvg*0.25+flow*0.15+rhythm*0.15+ret*0.15);
+      return { total, dims:{ "動作準確度":accuracy,"定式到位":stanceAvg,"流暢度":flow,"節奏一致":rhythm,"回正(回原點)":ret }, stanceRows };
+    }
+
+    function renderJudge(res, tpl){
+      judgeTotalEl.textContent=res.total;
+      const g = res.total>=90?"S（完美）":res.total>=80?"A（優秀）":res.total>=70?"B（良好）":res.total>=60?"C（普通）":"D（待加強）";
+      judgeGradeEl.textContent="· "+g;
+      const gc=res.total>=80?"var(--green)":res.total>=70?"var(--cyan)":res.total>=60?"var(--yellow)":"var(--red)";
+      judgeTotalEl.style.color=gc;
+      JUDGE_DIMS.forEach(n=>{ const v=clampPct(res.dims[n]);
+        document.getElementById("jm-"+n).textContent=v;
+        const bar=document.getElementById("jb-"+n); bar.style.width=v+"%";
+        bar.style.background = v>=80?"var(--green)":v>=65?"var(--cyan)":v>=50?"var(--yellow)":"var(--red)";
+      });
+      judgeCopy.textContent=`跟標準「${tpl.meta.name||"—"}」DTW 對齊後，偵測 ${res.stanceRows.length} 個定式。`;
+      judgeResultPill.className="pill "+(res.total>=80?"ok":res.total>=60?"warn":"bad");
+      judgeResultPill.textContent=`正確度 ${res.total} · ${g}`;
+      if(!res.stanceRows.length){ judgeStancesEl.innerHTML=`<div class="empty">未偵測到定式。</div>`; return; }
+      judgeStancesEl.innerHTML=`<div class="rec-list" style="padding:0">`+res.stanceRows.map((r,idx)=>{
+        const col=r.score>=80?"var(--green)":r.score>=65?"var(--yellow)":"var(--red)";
+        return `<div class="history-item"><div class="history-score" style="color:${col}">${r.score}</div>
+          <div class="history-meta">第 ${idx+1} 個定式<br>標準 ${(r.tTime/1000).toFixed(1)}s ↔ 你 ${(r.sTime/1000).toFixed(1)}s</div></div>`;
+      }).join("")+`</div>`;
+    }
+
+    judgeCamBtn.addEventListener("click", openCamera);
+    judgeStartBtn.addEventListener("click", startJudge);
+    judgeStopBtn.addEventListener("click", stopJudge);
+    judgeRefreshBtn.addEventListener("click", refreshJudgeSelects);
+    document.getElementById("tabBtnJudge").addEventListener("click", ()=>setTab("judge"));
+    initJudgeMetrics();
 
     /* ---------- 綁定 & 初始化 ---------- */
     cameraBtn.addEventListener("click", openCamera);
