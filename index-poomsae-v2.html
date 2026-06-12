@@ -1,0 +1,2726 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>品勢 AI 評分系統｜Taekwondo Poomsae AI</title>
+
+  <!-- 分享預覽（Open Graph / Twitter Card） -->
+  <meta name="description" content="品勢 AI 評分系統：太極品勢即時評判與正確度評分（動作錄製・範本對照・自動評分・結構評分・即時評判）。" />
+  <meta property="og:title" content="品勢 AI 評分系統｜Taekwondo Poomsae AI" />
+  <meta property="og:description" content="開相機即時評判太極品勢正確性：範本對照、自動評分、結構評分、即時評判。" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://shark7763-del.github.io/taekwondo-ai-coach/index-poomsae-v1.html" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="品勢 AI 評分系統｜Taekwondo Poomsae AI" />
+  <meta name="twitter:description" content="開相機即時評判太極品勢正確性。" />
+
+  <!-- MediaPipe Pose（真實骨架偵測） -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+  <!-- ESPORTS HUD 字體 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800;900&family=Rajdhani:wght@500;600;700&family=Chakra+Petch:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+
+  <style>
+    /* ==============================
+       Taekwondo AI Coach
+       純 HTML + CSS + JS + MediaPipe Pose
+       深色科技感、手機優先、卡片式介面
+    ============================== */
+
+    :root {
+      --bg: #07111f;
+      --card: rgba(15, 28, 48, 0.92);
+      --card-2: rgba(20, 40, 68, 0.92);
+      --line: rgba(95, 180, 255, 0.28);
+      --text: #f3f8ff;
+      --muted: #9fb3c8;
+      --blue: #4cc9f0;
+      --cyan: #72f7ff;
+      --green: #55efc4;
+      --yellow: #ffd166;
+      --red: #ff6b6b;
+      --purple: #a855f7;
+      --shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Noto Sans TC", "Microsoft JhengHei", Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(76, 201, 240, 0.22), transparent 34%),
+        radial-gradient(circle at top right, rgba(168, 85, 247, 0.22), transparent 30%),
+        linear-gradient(135deg, #050b14, var(--bg));
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .app { width: min(1180px, 100%); margin: 0 auto; padding: 18px; }
+    .hero { padding: 22px 4px 18px; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px;
+      color: var(--cyan); background: rgba(76, 201, 240, 0.08);
+      font-size: 13px; letter-spacing: 0.5px;
+    }
+
+    .badge-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green); box-shadow: 0 0 18px var(--green);
+    }
+
+    h1 { margin: 14px 0 6px; font-size: clamp(32px, 7vw, 58px); line-height: 1.05; letter-spacing: -1px; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 17px; }
+
+    .layout { display: grid; grid-template-columns: 1fr; gap: 16px; }
+
+    .card {
+      background: linear-gradient(180deg, var(--card), rgba(8, 18, 32, 0.94));
+      border: 1px solid var(--line); border-radius: var(--radius);
+      box-shadow: var(--shadow); overflow: hidden;
+    }
+
+    .card-header {
+      padding: 16px 18px; border-bottom: 1px solid rgba(95, 180, 255, 0.18);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+
+    .card-title { margin: 0; font-size: 18px; }
+
+    .status {
+      font-size: 12px; color: var(--green); padding: 6px 10px;
+      border: 1px solid rgba(85, 239, 196, 0.35); border-radius: 999px;
+      background: rgba(85, 239, 196, 0.08); white-space: nowrap;
+    }
+    .status.warn { color: var(--yellow); border-color: rgba(255,209,102,0.4); background: rgba(255,209,102,0.08); }
+    .status.busy { color: var(--cyan); border-color: rgba(114,247,255,0.4); background: rgba(114,247,255,0.08); }
+
+    .camera-box {
+      position: relative; min-height: 380px;
+      background:
+        linear-gradient(rgba(114, 247, 255, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(114, 247, 255, 0.06) 1px, transparent 1px),
+        radial-gradient(circle at center, rgba(76, 201, 240, 0.14), transparent 45%),
+        #050c17;
+      background-size: 28px 28px, 28px 28px, auto, auto;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    video {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; display: none;
+    }
+
+    canvas { position: relative; width: 100%; max-width: 560px; height: 360px; z-index: 2; }
+
+    .camera-label {
+      position: absolute; left: 16px; top: 16px; z-index: 3;
+      padding: 8px 10px; border-radius: 12px;
+      background: rgba(0, 0, 0, 0.34); border: 1px solid rgba(255, 255, 255, 0.12);
+      font-size: 13px; color: var(--cyan); backdrop-filter: blur(8px);
+    }
+
+    .rec-overlay {
+      position: absolute; inset: 0; z-index: 4; display: none;
+      align-items: center; justify-content: center; flex-direction: column;
+      background: rgba(3, 8, 16, 0.55); backdrop-filter: blur(2px); gap: 12px;
+    }
+    .rec-overlay.show { display: flex; }
+    .rec-count { font-size: 72px; font-weight: 900; color: var(--cyan); text-shadow: 0 0 30px rgba(114,247,255,0.6); }
+    .rec-text { font-size: 18px; color: var(--text); font-weight: 700; }
+    .rec-dot {
+      width: 14px; height: 14px; border-radius: 50%; background: var(--red);
+      box-shadow: 0 0 18px var(--red); animation: pulse 0.8s infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+    .controls {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+      padding: 14px; background: rgba(3, 10, 20, 0.45);
+    }
+
+    button {
+      border: none; border-radius: 16px; padding: 14px 12px;
+      font-weight: 800; font-size: 15px; color: #06111f; cursor: pointer;
+      transition: transform 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+    }
+    button:active { transform: scale(0.98); }
+    button:hover { filter: brightness(1.08); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.3); }
+
+    .btn-camera { background: linear-gradient(135deg, var(--cyan), var(--blue)); }
+    .btn-analyze { background: linear-gradient(135deg, var(--green), #7cffd5); }
+    .btn-reset { background: linear-gradient(135deg, #dbeafe, #93c5fd); }
+    .btn-export { background: linear-gradient(135deg, var(--yellow), #ffb703); }
+
+    .score-panel { padding: 16px; }
+
+    .total-score {
+      display: grid; grid-template-columns: 120px 1fr; gap: 14px; align-items: center;
+      padding: 16px; border-radius: 20px;
+      background:
+        radial-gradient(circle at left, rgba(85, 239, 196, 0.18), transparent 50%),
+        rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(85, 239, 196, 0.22); margin-bottom: 14px;
+    }
+
+    .score-circle {
+      width: 112px; height: 112px; border-radius: 50%;
+      border: 10px solid rgba(76, 201, 240, 0.22);
+      display: grid; place-items: center;
+      background: radial-gradient(circle, rgba(85, 239, 196, 0.22), rgba(76, 201, 240, 0.05));
+      box-shadow: inset 0 0 30px rgba(76, 201, 240, 0.18);
+    }
+
+    .score-number { font-size: 36px; font-weight: 900; color: var(--green); }
+    .score-copy h2 { margin: 0 0 6px; font-size: 22px; }
+    .score-copy p { margin: 0; color: var(--muted); line-height: 1.6; font-size: 14px; }
+
+    .metric { margin: 13px 0; }
+    .metric-top { display: flex; justify-content: space-between; margin-bottom: 7px; font-size: 14px; color: #d9e8f7; }
+    .bar { height: 11px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.08); }
+    .bar-fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, var(--blue), var(--green)); transition: width 0.5s ease; }
+
+    .feedback { padding: 16px; border-top: 1px solid rgba(95, 180, 255, 0.18); }
+    .feedback h3, .history h3 { margin: 0 0 12px; font-size: 17px; }
+    .feedback-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+    .feedback-list li {
+      padding: 12px; background: rgba(255, 255, 255, 0.045);
+      border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 15px;
+      color: #dceeff; line-height: 1.5; font-size: 14px;
+    }
+
+    .history { margin-top: 16px; padding: 16px; }
+    .history-list { display: grid; gap: 10px; }
+    .history-item {
+      display: grid; grid-template-columns: 74px 1fr; gap: 12px; align-items: center;
+      padding: 13px; border-radius: 17px; background: rgba(255, 255, 255, 0.045);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .history-score { font-size: 26px; font-weight: 900; color: var(--cyan); }
+    .history-meta { color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+    .empty { color: var(--muted); font-size: 14px; padding: 12px; border-radius: 14px; border: 1px dashed rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.03); }
+    .footer-note { color: var(--muted); text-align: center; font-size: 12px; padding: 22px 10px 8px; }
+
+    /* ===== 分頁 ===== */
+    .tabs { display: flex; gap: 8px; margin: 0 4px 14px; flex-wrap: wrap; }
+    .tab-btn {
+      background: rgba(255,255,255,0.05); color: var(--muted);
+      border: 1px solid var(--line); border-radius: 14px;
+      padding: 11px 18px; font-weight: 800; font-size: 15px;
+    }
+    .tab-btn.active { background: linear-gradient(135deg, var(--cyan), var(--blue)); color: #06111f; border-color: transparent; }
+    .tab-panel[hidden] { display: none; }
+
+    /* ===== 品勢錄製 ===== */
+    .rec-indicator { display: flex; align-items: center; gap: 10px; padding: 8px 12px; color: var(--text); font-weight: 700; font-size: 14px; }
+    .rec-indicator .rec-dot { display: none; }
+
+    .pm-form { padding: 14px; display: grid; gap: 10px; border-top: 1px solid rgba(95,180,255,0.18); }
+    .pm-form.hidden { display: none; }
+    .pm-form label { font-size: 13px; color: var(--muted); display: grid; gap: 5px; }
+    .pm-form label.chk { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 14px; }
+    .pm-form input, .pm-form select, .pm-form textarea {
+      background: rgba(255,255,255,0.05); border: 1px solid var(--line);
+      border-radius: 12px; padding: 10px; color: var(--text); font-size: 14px; font-family: inherit;
+    }
+    .pm-form .row { display: flex; gap: 10px; }
+    .muted-btn { background: rgba(255,255,255,0.08); color: var(--text); }
+
+    .cap-bar { padding: 12px 16px 4px; color: var(--muted); font-size: 12px; }
+    .rec-list { display: grid; gap: 10px; padding: 14px; }
+    .rec-card { padding: 13px; border-radius: 16px; background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.08); }
+    .rec-card h4 { margin: 0 0 6px; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .tpl-badge { font-size: 11px; color: #06111f; background: var(--green); padding: 2px 8px; border-radius: 999px; font-weight: 800; }
+    .rec-card .meta { color: var(--muted); font-size: 12px; line-height: 1.6; margin-bottom: 10px; }
+    .rec-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .rec-actions button, .btn-sm { padding: 8px 11px; font-size: 12px; border-radius: 10px; }
+    .btn-sm { background: rgba(114,247,255,0.16); color: var(--cyan); border: 1px solid var(--line); }
+    .btn-sm.danger { background: rgba(255,107,107,0.14); color: var(--red); border-color: rgba(255,107,107,0.4); }
+
+    .replay-box { position: relative; min-height: 300px; background: #050c17; display: flex; align-items: center; justify-content: center; }
+    .replay-controls { display: flex; gap: 8px; align-items: center; padding: 12px; flex-wrap: wrap; }
+    .replay-controls input[type=range] { flex: 1; min-width: 120px; }
+    .replay-controls button { padding: 9px 12px; font-size: 13px; }
+
+    @media (min-width: 900px) {
+      .app { padding: 28px; }
+      .layout { grid-template-columns: 1.12fr 0.88fr; align-items: start; }
+      .controls { grid-template-columns: repeat(4, 1fr); }
+      .camera-box { min-height: 520px; }
+      canvas { height: 460px; }
+    }
+    /* ============================================================
+       ESPORTS HUD SKIN — 覆蓋皮膚（不改 HTML/JS，只重塑視覺）
+       霓虹青/洋紅、Orbitron/Rajdhani、掃描線+網格、發光元件
+    ============================================================ */
+    :root{
+      --bg:#05070D;
+      --card:rgba(16,24,46,0.55); --card-2:rgba(10,16,32,0.65);
+      --line:rgba(0,229,255,0.22);
+      --text:#E8F4FF; --muted:#6E84A3;
+      --blue:#4cc9f0; --cyan:#00E5FF; --green:#00FFC6; --yellow:#FFC53D; --red:#FF3B6B; --purple:#B14CFF;
+      --shadow:0 16px 60px rgba(0,0,0,0.5); --radius:14px;
+    }
+    body{
+      font-family:"Rajdhani","Noto Sans TC","Microsoft JhengHei",sans-serif;
+      background:
+        radial-gradient(1200px 700px at 80% -10%, rgba(177,76,255,0.14), transparent 60%),
+        radial-gradient(1000px 600px at 0% 10%, rgba(0,229,255,0.12), transparent 55%),
+        linear-gradient(180deg,#0A0E1A,#05070D 60%);
+      background-attachment:fixed;
+    }
+    body::before{ content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+      background-image:linear-gradient(rgba(0,229,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,.035) 1px,transparent 1px);
+      background-size:44px 44px; mask-image:radial-gradient(ellipse 90% 80% at 50% 30%,#000 40%,transparent 100%);}
+    body::after{ content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+      background:repeating-linear-gradient(0deg,rgba(255,255,255,.018) 0 1px,transparent 1px 3px); animation:hudscan 8s linear infinite;}
+    @keyframes hudscan{ from{background-position:0 0} to{background-position:0 120px} }
+    .app{ position:relative; z-index:1; }
+
+    h1{ font-family:"Orbitron","Noto Sans TC",sans-serif; font-weight:900; text-transform:uppercase;
+      letter-spacing:.01em; text-shadow:0 0 24px rgba(0,229,255,.3); }
+    .subtitle{ font-family:"Rajdhani",sans-serif; letter-spacing:.05em; color:var(--muted); text-transform:uppercase; font-size:13px; }
+    .badge{ font-family:"Rajdhani",sans-serif; text-transform:uppercase; letter-spacing:.16em; font-weight:700; font-size:11px;
+      color:var(--cyan); border-color:rgba(0,229,255,.3); background:rgba(0,229,255,.06); box-shadow:0 0 16px rgba(0,229,255,.15); }
+    .badge-dot{ background:var(--cyan); box-shadow:0 0 10px var(--cyan); }
+
+    /* 分頁 */
+    .tab-btn{ font-family:"Rajdhani",sans-serif; text-transform:uppercase; letter-spacing:.1em; font-weight:700;
+      background:var(--card-2); color:var(--muted); border:1px solid var(--line); border-radius:10px; backdrop-filter:blur(8px); }
+    .tab-btn.active{ color:#03121A; background:linear-gradient(135deg,var(--cyan),#3df0ff);
+      border-color:transparent; box-shadow:0 0 18px rgba(0,229,255,.45); }
+
+    /* 卡片 */
+    .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+      backdrop-filter:blur(16px) saturate(140%); box-shadow:var(--shadow), inset 0 0 28px rgba(0,229,255,.05); }
+    .card-header{ border-bottom:1px solid rgba(0,229,255,.15); }
+    .card-title{ font-family:"Orbitron","Noto Sans TC",sans-serif; text-transform:uppercase; letter-spacing:.02em; font-size:15px; }
+
+    /* 狀態膠囊 */
+    .status{ font-family:"Rajdhani",sans-serif; text-transform:uppercase; letter-spacing:.1em; font-weight:700;
+      color:var(--green); border:1px solid rgba(0,255,198,.5); background:rgba(0,255,198,.07); box-shadow:0 0 12px rgba(0,255,198,.18); }
+    .status.warn{ color:var(--yellow); border-color:rgba(255,197,61,.5); background:rgba(255,197,61,.07); box-shadow:0 0 12px rgba(255,197,61,.16); }
+    .status.busy{ color:var(--cyan); border-color:rgba(0,229,255,.5); background:rgba(0,229,255,.07); box-shadow:0 0 12px rgba(0,229,255,.18); }
+
+    /* 按鈕 */
+    button{ font-family:"Rajdhani",sans-serif; text-transform:uppercase; letter-spacing:.1em; font-weight:700; border-radius:9px; }
+    .btn-camera,.btn-reset,.btn-export,.muted-btn{
+      color:var(--cyan)!important; border:1px solid rgba(0,229,255,.4);
+      background:linear-gradient(180deg,rgba(0,229,255,.12),rgba(0,229,255,.02));
+      text-shadow:0 0 8px rgba(0,229,255,.5); box-shadow:none; }
+    .btn-camera:hover,.btn-reset:hover,.btn-export:hover,.muted-btn:hover{
+      background:linear-gradient(180deg,rgba(0,229,255,.24),rgba(0,229,255,.06)); box-shadow:0 0 18px rgba(0,229,255,.35); }
+    .btn-analyze{ color:#ffd9ec!important; border:1px solid rgba(255,46,151,.55);
+      background:linear-gradient(135deg,rgba(255,46,151,.22),rgba(177,76,255,.18));
+      text-shadow:0 0 10px rgba(255,46,151,.6); box-shadow:0 0 18px rgba(255,46,151,.25); }
+    .btn-analyze:hover{ background:linear-gradient(135deg,rgba(255,46,151,.35),rgba(177,76,255,.3)); box-shadow:0 0 26px rgba(255,46,151,.5); }
+    .btn-sm{ font-family:"Rajdhani",sans-serif!important; text-transform:uppercase; letter-spacing:.06em; }
+
+    /* 表單 / 下拉 */
+    select,input,.pm-form input,.pm-form select{ background:var(--card-2); border:1px solid rgba(0,229,255,.3); color:var(--cyan);
+      border-radius:9px; font-family:"Rajdhani",sans-serif; }
+    select:focus,input:focus{ outline:none; box-shadow:0 0 14px rgba(0,229,255,.4); }
+    .pm-form label{ font-family:"Rajdhani",sans-serif; text-transform:uppercase; letter-spacing:.06em; }
+
+    /* 攝影機 / 重播視窗 — HUD 邊框 */
+    .camera-box,.replay-box{ border:1px solid rgba(0,229,255,.3); border-radius:var(--radius);
+      box-shadow:inset 0 0 60px rgba(0,229,255,.05), 0 0 0 1px rgba(0,229,255,.05); }
+    .camera-label{ font-family:"Rajdhani",sans-serif; text-transform:uppercase; letter-spacing:.12em; color:var(--cyan); }
+
+    /* 總分圈 + 數字 */
+    .score-circle{ border:2px solid rgba(0,229,255,.4);
+      background:radial-gradient(circle,rgba(0,229,255,.18),rgba(177,76,255,.05));
+      box-shadow:0 0 30px rgba(0,229,255,.3), inset 0 0 24px rgba(0,229,255,.1); }
+    .score-number{ font-family:"Orbitron",sans-serif; color:#eafcff;
+      text-shadow:0 0 18px rgba(0,229,255,.7), 0 0 40px rgba(177,76,255,.4); }
+    .score-copy h2{ font-family:"Orbitron","Noto Sans TC",sans-serif; text-transform:uppercase; }
+
+    /* 能力條 */
+    .metric-top{ font-family:"Rajdhani",sans-serif; }
+    .metric-top strong{ font-family:"Orbitron",sans-serif; color:var(--cyan); text-shadow:0 0 10px rgba(0,229,255,.5); }
+    .bar{ background:rgba(0,0,0,.4); border:1px solid rgba(0,229,255,.2); }
+    .bar-fill{ background:linear-gradient(90deg,var(--cyan),var(--purple))!important; box-shadow:0 0 14px rgba(0,229,255,.6); }
+
+    /* 回饋 / 清單 / 卡片 */
+    .feedback-list li,.rec-card,.history-item,.empty{ background:var(--card-2); border:1px solid var(--line); border-radius:10px; }
+    .feedback h3,.history h3{ font-family:"Orbitron","Noto Sans TC",sans-serif; text-transform:uppercase; font-size:14px; color:var(--cyan); }
+    .history-score{ font-family:"Orbitron",sans-serif; color:var(--cyan); text-shadow:0 0 10px rgba(0,229,255,.5); }
+    .tpl-badge{ font-family:"Rajdhani",sans-serif; text-transform:uppercase; letter-spacing:.08em; background:var(--green); color:#03121A; box-shadow:0 0 12px rgba(0,255,198,.4); }
+    .cap-bar,.footer-note,.mini,.history-meta{ font-family:"Rajdhani",sans-serif; }
+    .rec-dot{ background:var(--red); box-shadow:0 0 16px var(--red); }
+
+    /* 移除「橫踢分析」分頁（品勢系統不需要）— 按鈕隱藏，底層共用攝影機程式保留 */
+    #tabBtnKick{ display:none !important; }
+
+    /* ===== 三模式列 ===== */
+    .modebar{ display:grid; grid-template-columns:1fr; gap:10px; margin:4px 0 14px; }
+    @media(min-width:760px){ .modebar{ grid-template-columns:repeat(3,1fr); } }
+    .modebtn{ text-align:left; display:grid; gap:3px; padding:14px 16px; border-radius:14px; cursor:pointer;
+      background:var(--card-2); border:1px solid var(--line); color:var(--text);
+      font-family:"Rajdhani",sans-serif; transition:.15s; }
+    .modebtn .mi{ font-size:22px; }
+    .modebtn b{ font-size:16px; letter-spacing:.02em; }
+    .modebtn small{ color:var(--muted); font-size:12px; }
+    .modebtn:hover{ border-color:var(--cyan); box-shadow:0 0 16px rgba(0,229,255,.2); }
+    .modebtn.active{ border-color:transparent; background:linear-gradient(135deg,rgba(0,229,255,.18),rgba(177,76,255,.16));
+      box-shadow:0 0 22px rgba(0,229,255,.3); }
+    .modebtn.active b{ color:var(--cyan); text-shadow:0 0 12px var(--cyan-soft); }
+
+    /* ===== 拍攝檢查清單 ===== */
+    .shootcard{ background:var(--card); border:1px solid var(--line); border-radius:14px; margin-bottom:14px;
+      backdrop-filter:blur(12px); box-shadow:inset 0 0 24px rgba(0,229,255,.04); }
+    .shootcard > summary{ cursor:pointer; list-style:none; padding:13px 16px; display:flex; align-items:center; gap:10px;
+      font-family:"Rajdhani",sans-serif; font-weight:700; letter-spacing:.04em; color:var(--text); }
+    .shootcard > summary::-webkit-details-marker{ display:none }
+    .shootcard > summary .pill{ margin-left:auto; }
+    .shoot-grid{ display:grid; grid-template-columns:1fr; gap:8px; padding:0 16px 6px; }
+    @media(min-width:640px){ .shoot-grid{ grid-template-columns:1fr 1fr; } }
+    .shoot-grid label{ display:flex; align-items:center; gap:9px; font-size:13.5px; color:var(--ink-2,#dce9f7);
+      font-family:"Rajdhani",sans-serif; }
+    .shoot-grid input{ width:18px; height:18px; accent-color:#00E5FF; }
+    .shoot-note{ padding:8px 16px 14px; color:var(--yellow); font-size:12.5px; font-family:"Rajdhani",sans-serif; }
+
+    /* ===== 雙評分 + 信心 + 回饋 區塊（即時評判） ===== */
+    .confbar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:12px 0; }
+    .dual{ display:grid; grid-template-columns:1fr; gap:12px; margin:12px 0; }
+    @media(min-width:720px){ .dual{ grid-template-columns:1.3fr 1fr; } }
+    .dual .box{ background:var(--card-2); border:1px solid var(--line); border-radius:12px; padding:14px; }
+    .dual .box h4{ margin:0 0 10px; font-family:"Orbitron","Noto Sans TC",sans-serif; font-size:13px; text-transform:uppercase; color:var(--cyan); }
+    .dual .trow{ display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:13px; padding:5px 0; border-bottom:1px dashed rgba(0,229,255,.12); }
+    .dual .trow:last-child{ border-bottom:none; }
+    .dual .trow .tv{ font-family:"JetBrains Mono",monospace; color:var(--cyan); font-weight:700; }
+    .judge-big{ font-family:"Orbitron",sans-serif; font-size:40px; color:#eafcff; text-shadow:0 0 18px rgba(0,229,255,.6); line-height:1; }
+    .fb-coach{ display:grid; gap:8px; margin:12px 0; }
+    .fb-coach .blk{ background:var(--card-2); border:1px solid var(--line); border-left:3px solid var(--cyan); border-radius:10px; padding:11px 13px; }
+    .fb-coach .blk h5{ margin:0 0 5px; font-family:"Rajdhani",sans-serif; font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--cyan); }
+    .fb-coach .blk p{ margin:0; font-size:14px; line-height:1.6; color:#e7f2ff; white-space:pre-line; }
+    .line-box{ width:100%; min-height:200px; background:var(--card-2); border:1px solid rgba(0,229,255,.3); border-radius:10px;
+      color:var(--text); font-family:"Rajdhani","Noto Sans TC",monospace; font-size:13px; padding:12px; margin-top:8px; }
+
+    /* 模式可見性 */
+    body.mode-coach  [data-only="student"], body.mode-coach  [data-only="parent"],
+    body.mode-student [data-only="coach"], body.mode-student [data-only="parent"],
+    body.mode-parent [data-only="coach"], body.mode-parent [data-only="student"]{ display:none !important; }
+  </style>
+</head>
+
+<body>
+  <main class="app">
+    <!-- 共用攝影機來源（永遠隱藏，避免被分頁 display:none 暫停） -->
+    <video id="video" playsinline muted style="display:none"></video>
+
+    <section class="hero">
+      <div class="badge">
+        <span class="badge-dot"></span>
+        品勢 AI 評分｜MediaPipe Pose
+      </div>
+      <h1>Taekwondo AI Coach</h1>
+      <p class="subtitle">品勢 AI 評分系統｜動作錄製 · 範本對照 · 自動評分 · 結構評分 · 即時評判</p>
+    </section>
+
+    <!-- 三模式 -->
+    <div class="modebar" id="modebar">
+      <button class="modebtn" data-mode="student"><span class="mi">🧒</span><b>學生模式</b><small>開始錄製 · 查看分數 · AI 建議 · 再挑戰</small></button>
+      <button class="modebtn" data-mode="coach"><span class="mi">🥋</span><b>教練模式</b><small>建立標準範本 · 逐定式分析 · 匯出報告</small></button>
+      <button class="modebtn" data-mode="parent"><span class="mi">👪</span><b>家長模式</b><small>本週進步 · 優點 · 加強 · LINE 報告</small></button>
+    </div>
+
+    <!-- 拍攝檢查清單 -->
+    <details class="shootcard" id="shootCard">
+      <summary>📋 拍攝檢查清單（評分前請確認）<span class="pill warn" id="shootPill">未確認</span></summary>
+      <div class="shoot-grid">
+        <label><input type="checkbox" class="shootchk" /> 全身入鏡（頭到腳完整可見）</label>
+        <label><input type="checkbox" class="shootchk" /> 光線充足</label>
+        <label><input type="checkbox" class="shootchk" /> 鏡頭固定（建議腳架）</label>
+        <label><input type="checkbox" class="shootchk" /> 背景無其他人</label>
+        <label><input type="checkbox" class="shootchk" /> 學生站在畫面中央</label>
+        <label><input type="checkbox" class="shootchk" /> 機位固定不變焦</label>
+      </div>
+      <div class="shoot-note" id="shootNote">⚠ 未全部勾選時，本次 AI 評分僅供參考。</div>
+    </details>
+
+    <!-- 分頁切換 -->
+    <div class="tabs">
+      <button class="tab-btn active" id="tabBtnKick" data-tab="kick">單一動作分析</button>
+      <button class="tab-btn" id="tabBtnPoomsae" data-tab="poomsae">動作錄製</button>
+      <button class="tab-btn" id="tabBtnCompare" data-tab="compare">範本對照</button>
+      <button class="tab-btn" id="tabBtnScore" data-tab="score">自動評分</button>
+      <button class="tab-btn" id="tabBtnStruct" data-tab="struct">結構評分</button>
+      <button class="tab-btn" id="tabBtnJudge" data-tab="judge">即時評判</button>
+    </div>
+
+    <!-- 分頁：橫踢分析（原功能，未更動） -->
+    <div id="tab-kick" class="tab-panel">
+    <section class="layout">
+      <!-- 攝影機 / 骨架區 -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">攝影機畫面區</h2>
+          <div class="status warn" id="cameraStatus">尚未開啟攝影機</div>
+        </div>
+
+        <div class="camera-box">
+          <div class="camera-label" id="cameraLabel">AI 骨架偵測</div>
+
+          <canvas id="poseCanvas" width="640" height="480"></canvas>
+
+          <div class="rec-overlay" id="recOverlay">
+            <div class="rec-count" id="recCount">3</div>
+            <div class="rec-text" id="recText">準備…</div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button class="btn-camera" id="cameraBtn">開啟攝影機</button>
+          <button class="btn-analyze" id="analyzeBtn" disabled>開始品勢分析</button>
+          <button class="btn-reset" id="resetBtn">重設</button>
+          <button class="btn-export" id="exportBtn">匯出本次結果</button>
+        </div>
+      </section>
+
+      <!-- 評分區 -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">AI 評分卡</h2>
+          <div class="status">100 分制</div>
+        </div>
+
+        <div class="score-panel">
+          <div class="total-score">
+            <div class="score-circle">
+              <div class="score-number" id="totalScore">--</div>
+            </div>
+
+            <div class="score-copy">
+              <h2>總分</h2>
+              <p id="totalCopy">
+                開啟攝影機並站到鏡頭前（建議側面拍攝、全身入鏡），
+                按「開始品勢分析」後系統會錄製單一動作或完整品勢片段，
+                自動抓取關鍵影格並用真實骨架角度評分。
+              </p>
+            </div>
+          </div>
+
+          <div id="metrics"></div>
+        </div>
+
+        <div class="feedback">
+          <h3>AI 教練回饋</h3>
+          <ul class="feedback-list" id="feedbackList">
+            <li>尚未分析。請先開啟攝影機，再按「分析橫踢」。</li>
+          </ul>
+        </div>
+      </section>
+    </section>
+
+    <!-- 最近 3 次紀錄 -->
+    <section class="card history">
+      <h3>最近 3 次分析結果</h3>
+      <div class="history-list" id="historyList">
+        <div class="empty">目前尚無分析紀錄。</div>
+      </div>
+    </section>
+    </div><!-- /tab-kick -->
+
+    <!-- 分頁：品勢錄製 -->
+    <div id="tab-poomsae" class="tab-panel" hidden>
+      <section class="layout">
+        <!-- 錄製區 -->
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title">動作骨架錄製</h2>
+            <div class="status warn" id="pmStatus">尚未開啟攝影機</div>
+          </div>
+
+          <div class="camera-box">
+            <div class="camera-label">AI 骨架（品勢）</div>
+            <canvas id="poomsaeCanvas" width="640" height="480"></canvas>
+            <div class="rec-indicator" id="pmRecIndicator"
+                 style="position:absolute;left:16px;bottom:14px;z-index:3;background:rgba(0,0,0,0.42);border:1px solid rgba(255,255,255,0.12);border-radius:12px;backdrop-filter:blur(6px);">
+              <span class="rec-dot" id="pmRecDot"></span>
+              <span id="pmRecText">未錄製</span>
+            </div>
+          </div>
+
+          <div class="controls">
+            <button class="btn-camera" id="pmCameraBtn">開啟攝影機</button>
+            <button class="btn-analyze" id="pmStartBtn" disabled>開始錄製</button>
+            <button class="btn-reset" id="pmStopBtn" disabled>停止錄製</button>
+            <button class="btn-export" id="pmImportBtn">匯入 JSON</button>
+          </div>
+
+          <!-- 存檔表單（停止錄製後出現） -->
+          <div class="pm-form hidden" id="pmForm">
+            <label>範本名稱
+              <input id="pmName" placeholder="例：橫踢-標準 / 太極一章-標準" />
+            </label>
+            <div class="row">
+              <label style="flex:1">動作類型
+                <select id="pmType">
+                  <optgroup label="踢法">
+                    <option value="kick_roundhouse">橫踢</option>
+                    <option value="kick_front">前踢</option>
+                    <option value="kick_side">側踢</option>
+                    <option value="kick_back">後踢</option>
+                    <option value="kick_backspin">後旋踢</option>
+                  </optgroup>
+                  <optgroup label="品勢">
+                    <option value="taegeuk_1">太極一章</option>
+                    <option value="taegeuk_2">太極二章</option>
+                    <option value="taegeuk_3">太極三章</option>
+                    <option value="taegeuk_4">太極四章</option>
+                    <option value="taegeuk_5">太極五章</option>
+                    <option value="taegeuk_6">太極六章</option>
+                    <option value="taegeuk_7">太極七章</option>
+                    <option value="taegeuk_8">太極八章</option>
+                  </optgroup>
+                  <option value="other">其他/自訂</option>
+                </select>
+              </label>
+              <label style="flex:1">示範者
+                <input id="pmDemo" placeholder="例：王教練" />
+              </label>
+            </div>
+            <div class="row">
+              <label style="flex:1">年級／組別
+                <input id="pmGrade" placeholder="例：國小高年級 / 藍帶組" />
+              </label>
+              <label style="flex:1">拍攝角度
+                <select id="pmAngle">
+                  <option value="front">正面</option>
+                  <option value="diag45">45° 斜前</option>
+                  <option value="side">側面</option>
+                  <option value="other">其他</option>
+                </select>
+              </label>
+            </div>
+            <label>範本分類
+              <select id="pmCategory">
+                <option value="coach">教練標準範本</option>
+                <option value="age">年齡組標準範本</option>
+                <option value="personal">個人進步範本</option>
+              </select>
+            </label>
+            <label>備註
+              <input id="pmNote" placeholder="例：正面示範、左起" />
+            </label>
+            <label class="chk"><input type="checkbox" id="pmIsTemplate" /> 設為標準範本（對照組）</label>
+            <div class="row">
+              <button class="btn-analyze" id="pmSaveBtn" style="flex:1">儲存</button>
+              <button class="muted-btn" id="pmCancelBtn" style="flex:1">捨棄</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 重播區 -->
+        <section class="card" id="replayCard" hidden>
+          <div class="card-header">
+            <h2 class="card-title">骨架重播</h2>
+            <div class="status" id="replayTitle">—</div>
+          </div>
+          <div class="replay-box">
+            <canvas id="replayCanvas" width="640" height="480"></canvas>
+          </div>
+          <div class="replay-controls">
+            <button class="muted-btn" id="replayPlayPause">暫停</button>
+            <button class="muted-btn" id="replaySpeed">1.0×</button>
+            <input type="range" id="replayProgress" min="0" max="1000" value="0" />
+            <span class="history-meta" id="replayTime">0s / 0s</span>
+            <button class="btn-sm danger" id="replayClose">關閉</button>
+          </div>
+        </section>
+      </section>
+
+      <!-- 範本 / 錄製清單 -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">錄製與範本清單</h2>
+          <button class="btn-sm" id="pmExportAllBtn">匯出全部</button>
+        </div>
+        <div class="cap-bar" id="pmCapBar">儲存空間：計算中…</div>
+        <div class="rec-list" id="pmList">
+          <div class="empty">尚無錄製。開啟攝影機後按「開始錄製」。</div>
+        </div>
+      </section>
+
+      <input type="file" id="pmImportFile" accept="application/json" style="display:none" />
+    </div><!-- /tab-poomsae -->
+
+    <!-- 分頁：範本對照（疊圖比對） -->
+    <div id="tab-compare" class="tab-panel" hidden>
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">範本對照（疊圖比對）</h2>
+          <div class="status" id="cmpStatus">選擇範本後套用</div>
+        </div>
+
+        <div class="pm-form" style="border-top:none">
+          <div class="row">
+            <label style="flex:1">標準範本（綠）
+              <select id="cmpTemplateSel"></select>
+            </label>
+            <label style="flex:1">對照來源（紅）
+              <select id="cmpSourceSel"></select>
+            </label>
+          </div>
+          <div class="row">
+            <button class="btn-analyze" id="cmpApplyBtn" style="flex:2">套用對照</button>
+            <button class="muted-btn" id="cmpRefreshBtn" style="flex:1">重新整理</button>
+          </div>
+        </div>
+
+        <div class="replay-box">
+          <canvas id="cmpCanvas" width="640" height="480"></canvas>
+          <div class="camera-label" style="left:16px;top:16px">綠＝標準範本　紅＝你/學員</div>
+        </div>
+
+        <div class="replay-controls">
+          <button class="muted-btn" id="cmpPlayPause">暫停</button>
+          <button class="muted-btn" id="cmpSpeed">1.0×</button>
+          <span class="history-meta" id="cmpError" style="flex:1">—</span>
+          <button class="muted-btn" id="cmpResetBest">重置最佳</button>
+          <button class="btn-sm danger" id="cmpStop">停止</button>
+        </div>
+        <div class="cap-bar">綠線＝你設的標準範本，紅線＝對照來源（即時鏡頭或另一筆錄製）。兩者都以髖中心對齊、軀幹長縮放，所以不受身高/站位影響，純看姿勢差異。</div>
+      </section>
+    </div><!-- /tab-compare -->
+
+    <!-- 分頁：自動評分（定式對齊 + DTW） -->
+    <div id="tab-score" class="tab-panel" hidden>
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">自動評分（定式對齊 + DTW）</h2>
+          <div class="status" id="scoreStatus">選範本與學員錄製後評分</div>
+        </div>
+
+        <div class="pm-form" style="border-top:none">
+          <div class="row">
+            <label style="flex:1">標準範本
+              <select id="scoreTplSel"></select>
+            </label>
+            <label style="flex:1">學員錄製
+              <select id="scoreStuSel"></select>
+            </label>
+          </div>
+          <div class="row">
+            <button class="btn-analyze" id="scoreRunBtn" style="flex:2">開始自動評分</button>
+            <button class="muted-btn" id="scoreRefreshBtn" style="flex:1">重新整理</button>
+          </div>
+        </div>
+
+        <div class="score-panel">
+          <div class="total-score">
+            <div class="score-circle"><div class="score-number" id="scoreTotal">--</div></div>
+            <div class="score-copy">
+              <h2>總分</h2>
+              <p id="scoreCopy">選一個標準範本＋一筆學員錄製，按「開始自動評分」。系統會用 DTW 對齊兩段時間軸（容忍速度不同），偵測定式並逐項打分。</p>
+            </div>
+          </div>
+          <div id="scoreMetrics"></div>
+        </div>
+
+        <div class="feedback">
+          <h3>AI 教練回饋</h3>
+          <ul class="feedback-list" id="scoreFeedback"><li>尚未評分。</li></ul>
+        </div>
+
+        <div class="feedback" style="border-top:1px solid rgba(95,180,255,.18)">
+          <h3>逐定式明細</h3>
+          <div id="scoreStances"><div class="empty">尚未評分。</div></div>
+        </div>
+      </section>
+    </div><!-- /tab-score -->
+
+    <!-- 分頁：結構評分（免範本，單支影片客觀結構分） -->
+    <div id="tab-struct" class="tab-panel" hidden>
+      <section class="card">
+        <div class="card-header">
+          <h2 class="card-title">結構評分（免範本）</h2>
+          <div class="status" id="structStatus">選一筆錄製即可評分</div>
+        </div>
+
+        <div class="pm-form" style="border-top:none">
+          <div class="row">
+            <label style="flex:2">選擇錄製
+              <select id="structSel"></select>
+            </label>
+            <button class="muted-btn" id="structRefreshBtn" style="flex:1;align-self:end">重新整理</button>
+          </div>
+          <button class="btn-analyze" id="structRunBtn">開始結構評分</button>
+        </div>
+
+        <div class="score-panel">
+          <div class="total-score">
+            <div class="score-circle"><div class="score-number" id="structTotal">--</div></div>
+            <div class="score-copy">
+              <h2>結構總分 <span id="structGrade" style="font-size:15px;color:var(--muted)"></span></h2>
+              <p id="structCopy">不需要標準範本——單支品勢影片就能算的客觀結構分：重心穩定、流暢度、演武線閉合、動靜節奏、起收式一致。</p>
+            </div>
+          </div>
+          <div id="structMetrics"></div>
+        </div>
+
+        <div class="feedback">
+          <h3>AI 教練回饋</h3>
+          <ul class="feedback-list" id="structFeedback"><li>尚未評分。</li></ul>
+        </div>
+        <div class="cap-bar">＊此為「免範本」客觀結構指標（藍圖 §11 MVP）：只看動作本身的物理結構，不跟標準範本比。要跟標準比請用「範本對照／自動評分」。</div>
+      </section>
+    </div><!-- /tab-struct -->
+
+    <!-- 分頁：即時評判（開相機→選標準型→打完整套→馬上出正確度） -->
+    <div id="tab-judge" class="tab-panel" hidden>
+      <section class="layout">
+        <!-- 相機 + 操作 -->
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title">即時品勢評判</h2>
+            <div class="status warn" id="judgeStatus">選標準型並開啟攝影機</div>
+          </div>
+          <div class="bd" style="padding:15px">
+            <div class="row" style="display:flex;gap:10px;margin-bottom:12px">
+              <div class="field" style="display:grid;gap:6px;flex:2">
+                <label style="font-size:13px;color:var(--muted)">要評判的標準型</label>
+                <select id="judgeTplSel"></select>
+              </div>
+              <div class="field" style="display:grid;gap:6px;flex:1">
+                <label style="font-size:13px;color:var(--muted)">學生姓名</label>
+                <input id="judgeStudent" placeholder="（選填）" />
+              </div>
+            </div>
+            <div class="camera-box">
+              <div class="camera-label">即時評判</div>
+              <canvas id="judgeCanvas" width="640" height="480"></canvas>
+              <div class="rec-indicator" id="judgeRecInd"
+                   style="position:absolute;left:16px;bottom:14px;z-index:3;background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.12);border-radius:12px;backdrop-filter:blur(6px)">
+                <span class="rec-dot" id="judgeRecDot"></span>
+                <span id="judgeRecText">未評判</span>
+              </div>
+            </div>
+            <div class="controls">
+              <button class="btn-camera" id="judgeCamBtn">開啟攝影機</button>
+              <button class="btn-analyze" id="judgeStartBtn" disabled>開始評判</button>
+              <button class="btn-reset" id="judgeStopBtn" disabled>結束並評分</button>
+              <button class="muted-btn" id="judgeRefreshBtn">重新整理範本</button>
+            </div>
+            <p class="cap-bar" style="padding:10px 2px 0">開啟攝影機 → 選太極型 → 按「開始評判」→ 從起式打到收式 → 按「結束並評分」，系統會跟標準型 DTW 對齊後給正確度與逐定式。</p>
+          </div>
+        </section>
+
+        <!-- 評判結果 -->
+        <section class="card">
+          <div class="card-header">
+            <h2 class="card-title">正確度評分</h2>
+            <div class="status" id="judgeResultPill">尚未評判</div>
+          </div>
+          <div class="score-panel">
+            <div class="total-score">
+              <div class="score-circle"><div class="score-number" id="judgeTotal">--</div></div>
+              <div class="score-copy">
+                <h2>正確度 <span id="judgeGrade" style="font-size:15px;color:var(--muted)"></span></h2>
+                <p id="judgeCopy">開相機、選標準型、打完整套後按「結束並評分」，這裡會顯示與標準型的正確度。</p>
+              </div>
+            </div>
+            <div class="confbar" id="judgeConfBar" style="display:none">
+              <span style="font-family:'Rajdhani';letter-spacing:.08em;color:var(--muted)">AI 信心指數</span>
+              <span class="pill" id="judgeConf">—</span>
+              <span class="pill warn" id="judgeShootWarn" style="display:none">本次評分僅供參考</span>
+            </div>
+            <div id="judgeMetrics"></div>
+
+            <!-- 雙評分：AI 訓練分(100) + 裁判參考分(10) -->
+            <div class="dual" id="judgeDual" style="display:none">
+              <div class="box">
+                <h4>A · AI 訓練分（100 分制）</h4>
+                <div id="judgeTrain"></div>
+              </div>
+              <div class="box">
+                <h4>B · 裁判參考分（10 分制）</h4>
+                <div class="trow"><span>準確性 Accuracy</span><span class="tv" id="judgeAcc">—/4.0</span></div>
+                <div class="trow"><span>表現力 Presentation</span><span class="tv" id="judgePres">—/6.0</span></div>
+                <div class="trow" style="margin-top:6px"><span style="font-weight:700">總分 Total</span><span class="judge-big" id="judgeRef10">—</span></div>
+                <p class="cap-bar" style="padding:8px 0 0">此分數為 AI 訓練參考，<b>不代表正式裁判判分</b>。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI 教練回饋 -->
+          <div class="feedback">
+            <h3>AI 教練回饋</h3>
+            <div class="fb-coach" id="judgeCoach"><div class="empty">尚未評判。</div></div>
+          </div>
+
+          <!-- 家長 LINE 報告 -->
+          <div class="feedback" id="judgeLineWrap" style="display:none;border-top:1px solid rgba(0,229,255,.15)">
+            <h3>家長 LINE 報告</h3>
+            <button class="btn-analyze" id="judgeLineBtn">📋 複製家長 LINE 報告</button>
+            <textarea class="line-box" id="judgeLineBox" readonly></textarea>
+          </div>
+
+          <div class="feedback" style="border-top:1px solid rgba(0,229,255,.15)">
+            <h3>逐定式明細</h3>
+            <div id="judgeStances"><div class="empty">尚未評判。</div></div>
+          </div>
+        </section>
+      </section>
+    </div><!-- /tab-judge -->
+
+    <div class="footer-note" style="line-height:1.8">
+      <b style="color:var(--cyan)">技術限制說明</b>：本系統使用 MediaPipe Pose 進行骨架偵測，<b>適合分析站姿、重心、動作順序與大關節角度</b>。手型、拳面、腳掌方向與細部力道仍需教練判斷。<br>
+      品勢 AI 評分系統｜純前端 + MediaPipe Pose｜骨架資料只在你的裝置上運算，不上傳。AI 分析僅作為訓練輔助，實際修正仍以教練指導為主。
+    </div>
+  </main>
+
+  <!-- 內建標準範本資料（由轉換器注入；type=application/json 不會被當程式執行） -->
+  <script id="builtinTemplatesData" type="application/json">[]</script>
+
+  <script>
+    /* ==========================================================
+       Taekwondo AI Coach — 真實骨架分析版
+       1. MediaPipe Pose 取得 33 個關鍵點
+       2. 「分析橫踢」錄製約 2.2 秒動作
+       3. 自動判斷踢擊腳，取「收膝最高」與「出腿最高」關鍵影格
+       4. 以真實角度 / 位置計算 6 項分數（非亂數）
+       5. 歷史紀錄存 localStorage
+    ========================================================== */
+
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("poseCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const cameraBtn = document.getElementById("cameraBtn");
+    const analyzeBtn = document.getElementById("analyzeBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const exportBtn = document.getElementById("exportBtn");
+
+    const cameraStatus = document.getElementById("cameraStatus");
+    const cameraLabel = document.getElementById("cameraLabel");
+    const totalScoreEl = document.getElementById("totalScore");
+    const totalCopy = document.getElementById("totalCopy");
+    const metricsEl = document.getElementById("metrics");
+    const feedbackList = document.getElementById("feedbackList");
+    const historyList = document.getElementById("historyList");
+
+    const recOverlay = document.getElementById("recOverlay");
+    const recCount = document.getElementById("recCount");
+    const recText = document.getElementById("recText");
+
+    const metricNames = ["收膝高度", "髖部旋轉", "膝蓋伸展", "支撐腳旋轉", "身體平衡", "收腳速度"];
+
+    // MediaPipe Pose 33 點索引
+    const LM = {
+      nose: 0,
+      shoulderL: 11, shoulderR: 12,
+      elbowL: 13, elbowR: 14,
+      wristL: 15, wristR: 16,
+      hipL: 23, hipR: 24,
+      kneeL: 25, kneeR: 26,
+      ankleL: 27, ankleR: 28,
+      heelL: 29, heelR: 30,
+      footL: 31, footR: 32
+    };
+
+    const RECORD_MS = 2200;          // 錄製時長
+    const STORE_KEY = "tkd_ai_coach_history";
+    let ASPECT = 640 / 480;          // x/y 比例校正（鏡頭實際比例載入後更新）
+
+    let pose = null;
+    let camera = null;
+    let cameraOn = false;
+    let poseReady = false;
+    let latestLandmarks = null;
+
+    let recording = false;
+    let recordedFrames = [];
+
+    let currentResult = null;
+    let history = loadHistory();
+
+    let currentTab = "kick";   // "kick" | "poomsae"
+
+    /* ---------- 幾何小工具（已做 x/y 比例校正） ---------- */
+    function P(lm, idx) { return { x: lm[idx].x * ASPECT, y: lm[idx].y, v: lm[idx].visibility ?? 1, z: lm[idx].z ?? 0 }; }
+    function mid(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+    function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+    // b 點的夾角（a-b-c），回傳角度
+    function angleAt(a, b, c) {
+      const v1 = { x: a.x - b.x, y: a.y - b.y };
+      const v2 = { x: c.x - b.x, y: c.y - b.y };
+      const dot = v1.x * v2.x + v1.y * v2.y;
+      const m = Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y) || 1e-6;
+      return Math.acos(Math.max(-1, Math.min(1, dot / m))) * 180 / Math.PI;
+    }
+    // 線性映射並 clamp 到 [40, 99]
+    function mapScore(v, inLo, inHi, outLo, outHi) {
+      let t = (v - inLo) / (inHi - inLo);
+      t = Math.max(0, Math.min(1, t));
+      return Math.round(Math.max(40, Math.min(99, outLo + t * (outHi - outLo))));
+    }
+
+    /* ---------- 評分條初始化 ---------- */
+    function initMetrics() {
+      metricsEl.innerHTML = "";
+      metricNames.forEach(name => {
+        const m = document.createElement("div");
+        m.className = "metric";
+        m.innerHTML = `
+          <div class="metric-top">
+            <span>${name}</span>
+            <strong id="score-${name}">--</strong>
+          </div>
+          <div class="bar"><div class="bar-fill" id="bar-${name}"></div></div>`;
+        metricsEl.appendChild(m);
+      });
+    }
+
+    /* ---------- 待機示意骨架（攝影機未開時） ---------- */
+    function drawIdleSkeleton() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const g = ctx.createRadialGradient(320, 240, 20, 320, 240, 280);
+      g.addColorStop(0, "rgba(76, 201, 240, 0.18)");
+      g.addColorStop(1, "rgba(76, 201, 240, 0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const pts = {
+        head: [300, 90], neck: [300, 140], shL: [255, 165], shR: [345, 165],
+        elL: [225, 215], elR: [375, 210], haL: [205, 255], haR: [395, 245],
+        hipL: [270, 270], hipR: [340, 265], kneeS: [255, 360], footS: [240, 440],
+        kneeK: [430, 250], footK: [550, 215]
+      };
+      const lc = "#72f7ff", pc = "#4cc9f0";
+      const line = (a, b) => {
+        ctx.beginPath(); ctx.moveTo(pts[a][0], pts[a][1]); ctx.lineTo(pts[b][0], pts[b][1]);
+        ctx.strokeStyle = lc; ctx.lineWidth = 5; ctx.lineCap = "round";
+        ctx.shadowColor = lc; ctx.shadowBlur = 12; ctx.stroke(); ctx.shadowBlur = 0;
+      };
+      [["head","neck"],["neck","shL"],["neck","shR"],["shL","elL"],["elL","haL"],
+       ["shR","elR"],["elR","haR"],["neck","hipL"],["neck","hipR"],["hipL","kneeS"],
+       ["kneeS","footS"],["hipR","kneeK"],["kneeK","footK"],["hipL","hipR"]].forEach(p => line(...p));
+      Object.values(pts).forEach(([x, y]) => {
+        ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = pc; ctx.shadowColor = pc; ctx.shadowBlur = 16; ctx.fill(); ctx.shadowBlur = 0;
+      });
+      ctx.beginPath(); ctx.arc(pts.head[0], pts.head[1], 24, 0, Math.PI * 2);
+      ctx.strokeStyle = lc; ctx.lineWidth = 5; ctx.stroke();
+      ctx.fillStyle = "#72f7ff"; ctx.font = "bold 18px Microsoft JhengHei";
+      ctx.fillText("Pose Detection（請開啟攝影機）", 150, 50);
+    }
+
+    /* ---------- MediaPipe 初始化 ---------- */
+    function setupPose() {
+      pose = new Pose({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
+      pose.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        enableSegmentation: false,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+      pose.onResults(onPoseResults);
+    }
+
+    function onPoseResults(results) {
+      latestLandmarks = results.poseLandmarks || null;
+      if (currentTab === "poomsae") { onPoseResultsPoomsae(results); return; }
+      if (currentTab === "compare") { return; }   // 對照分頁由 cmpTick 自行繪製疊圖
+      if (currentTab === "judge") { onPoseResultsJudge(results); return; }
+
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (results.image) ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+      const lm = results.poseLandmarks;
+
+      if (lm) {
+        // 連線與關鍵點（錄製中改成綠色）
+        const c = recording ? "#55efc4" : "#72f7ff";
+        if (window.drawConnectors && window.POSE_CONNECTIONS) {
+          drawConnectors(ctx, lm, POSE_CONNECTIONS, { color: c, lineWidth: 4 });
+          drawLandmarks(ctx, lm, { color: "#ffd166", lineWidth: 1, radius: 4 });
+        }
+        if (recording) {
+          recordedFrames.push({
+            t: performance.now(),
+            lm: lm.map(p => ({ x: p.x, y: p.y, z: p.z, visibility: p.visibility }))
+          });
+        }
+      } else {
+        ctx.fillStyle = "rgba(255,107,107,0.9)";
+        ctx.font = "bold 18px Microsoft JhengHei";
+        ctx.fillText("偵測不到人體，請站到鏡頭前、全身入鏡", 70, 40);
+      }
+      ctx.restore();
+    }
+
+    /* ---------- 開啟攝影機 ---------- */
+    async function openCamera() {
+      if (typeof Pose === "undefined" || typeof Camera === "undefined") {
+        setStatus("warn", "AI 元件載入失敗（請檢查網路）");
+        alert("MediaPipe 載入失敗，請確認有連上網路後重新整理頁面。");
+        return;
+      }
+      try {
+        setStatus("busy", "AI 模型載入中…");
+        cameraBtn.disabled = true;
+        if (!pose) setupPose();
+
+        camera = new Camera(video, {
+          onFrame: async () => { await pose.send({ image: video }); },
+          width: 640,
+          height: 480,
+          facingMode: "environment"   // 優先使用後鏡頭（手機）；桌機自動回退前鏡頭
+        });
+        await camera.start();
+
+        // 依實際畫面比例校正 x/y
+        if (video.videoWidth && video.videoHeight) {
+          ASPECT = video.videoWidth / video.videoHeight;
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          if (typeof poomsaeCanvas !== "undefined" && poomsaeCanvas) {
+            poomsaeCanvas.width = video.videoWidth;
+            poomsaeCanvas.height = video.videoHeight;
+          }
+          if (typeof judgeCanvas !== "undefined" && judgeCanvas) {
+            judgeCanvas.width = video.videoWidth;
+            judgeCanvas.height = video.videoHeight;
+          }
+          VIDEO_W = video.videoWidth; VIDEO_H = video.videoHeight;
+        }
+
+        cameraOn = true;
+        poseReady = true;
+        analyzeBtn.disabled = false;
+        cameraBtn.textContent = "攝影機已開啟";
+        setStatus("ok", "攝影機運作中");
+        cameraLabel.textContent = "Live Camera + AI 骨架";
+        if (typeof updatePmCameraUI === "function") updatePmCameraUI();
+        if (typeof updateJudgeCameraUI === "function") updateJudgeCameraUI();
+      } catch (err) {
+        cameraBtn.disabled = false;
+        setStatus("warn", "無法開啟攝影機");
+        cameraLabel.textContent = "請允許攝影機權限";
+        alert("無法開啟攝影機，可能是瀏覽器權限未允許，或非 https/localhost 環境。");
+        console.error(err);
+      }
+    }
+
+    function setStatus(kind, text) {
+      cameraStatus.className = "status" + (kind === "ok" ? "" : " " + kind);
+      cameraStatus.textContent = text;
+    }
+
+    /* ---------- 分析流程：倒數 → 錄製 → 計算 ---------- */
+    function startAnalyze() {
+      if (!cameraOn || !poseReady) {
+        alert("請先開啟攝影機並站到鏡頭前，再按分析橫踢。");
+        return;
+      }
+      analyzeBtn.disabled = true;
+      let n = 3;
+      recOverlay.classList.add("show");
+      recCount.textContent = n;
+      recText.textContent = "準備…站好預備姿勢";
+
+      const tick = setInterval(() => {
+        n--;
+        if (n > 0) {
+          recCount.textContent = n;
+        } else {
+          clearInterval(tick);
+          beginRecording();
+        }
+      }, 800);
+    }
+
+    function beginRecording() {
+      recordedFrames = [];
+      recording = true;
+      recCount.innerHTML = '<span class="rec-dot"></span>';
+      recText.textContent = "錄製中…請完成單一動作或完整品勢片段！";
+
+      setTimeout(() => {
+        recording = false;
+        recOverlay.classList.remove("show");
+        analyzeBtn.disabled = false;
+        finishAnalyze();
+      }, RECORD_MS);
+    }
+
+    function finishAnalyze() {
+      const frames = recordedFrames.filter(f => f.lm);
+      if (frames.length < 6) {
+        feedbackList.innerHTML = `<li>這次錄到的有效影格太少（${frames.length} 格），偵測不到完整動作。請確認全身入鏡、光線充足後再試。</li>`;
+        return;
+      }
+      const result = computeMetrics(frames);
+      if (!result) {
+        feedbackList.innerHTML = `<li>無法判斷踢擊腳。請確保鏡頭能看到雙腿與髖部，並做出明顯的橫踢動作。</li>`;
+        return;
+      }
+      currentResult = result;
+      updateScoreUI(result);
+      updateFeedback(result);
+      pushHistory(result);
+    }
+
+    /* ---------- 核心：真實角度計算 ---------- */
+    function computeMetrics(frames) {
+      // 用可見度過濾：取每隻腳踝在所有影格的最高點（y 最小）
+      let minYL = 1e9, minYR = 1e9;
+      frames.forEach(f => {
+        const aL = f.lm[LM.ankleL], aR = f.lm[LM.ankleR];
+        if ((aL.visibility ?? 1) > 0.3) minYL = Math.min(minYL, aL.y);
+        if ((aR.visibility ?? 1) > 0.3) minYR = Math.min(minYR, aR.y);
+      });
+      if (minYL === 1e9 && minYR === 1e9) return null;
+
+      // 踢擊腳 = 腳踝抬得最高（y 最小）那隻
+      const kickIsLeft = minYL <= minYR;
+      const K = kickIsLeft
+        ? { hip: LM.hipL, knee: LM.kneeL, ankle: LM.ankleL, heel: LM.heelL, foot: LM.footL }
+        : { hip: LM.hipR, knee: LM.kneeR, ankle: LM.ankleR, heel: LM.heelR, foot: LM.footR };
+      const S = kickIsLeft   // 支撐腳
+        ? { hip: LM.hipR, knee: LM.kneeR, ankle: LM.ankleR, heel: LM.heelR, foot: LM.footR }
+        : { hip: LM.hipL, knee: LM.kneeL, ankle: LM.ankleL, heel: LM.heelL, foot: LM.footL };
+
+      // 關鍵影格：收膝最高（膝 y 最小）、出腿最高（踝 y 最小）
+      let chamberIdx = 0, chamberY = 1e9, peakIdx = 0, peakY = 1e9;
+      frames.forEach((f, i) => {
+        const ky = f.lm[K.knee].y, ay = f.lm[K.ankle].y;
+        if (ky < chamberY) { chamberY = ky; chamberIdx = i; }
+        if (ay < peakY) { peakY = ay; peakIdx = i; }
+      });
+
+      const fc = frames[chamberIdx].lm;
+      const fp = frames[peakIdx].lm;
+
+      // 軀幹長度（尺度標準化用）
+      const shC = mid(P(fp, LM.shoulderL), P(fp, LM.shoulderR));
+      const hipC = mid(P(fp, LM.hipL), P(fp, LM.hipR));
+      const torso = Math.max(1e-3, dist(shC, hipC));
+
+      const scores = {};
+
+      // 1. 收膝高度：收膝影格中，踢擊膝相對髖中心抬升量 / 軀幹
+      const hipC_c = mid(P(fc, LM.hipL), P(fc, LM.hipR));
+      const kneeUp = (hipC_c.y - P(fc, K.knee).y) / torso;   // 膝高於髖為正
+      scores["收膝高度"] = mapScore(kneeUp, -0.35, 0.45, 52, 98);
+
+      // 2. 髖部旋轉：左右髖深度（z）差 / 髖寬，越大代表轉體越多
+      const hipWidth = Math.max(1e-3, dist(P(fp, LM.hipL), P(fp, LM.hipR)));
+      const hipRot = Math.abs((fp[LM.hipL].z ?? 0) - (fp[LM.hipR].z ?? 0)) / hipWidth;
+      scores["髖部旋轉"] = mapScore(hipRot, 0.05, 0.9, 55, 96);
+
+      // 3. 膝蓋伸展：出腿影格 髖-膝-踝 夾角（越接近 180 越伸展）
+      const kneeExt = angleAt(P(fp, K.hip), P(fp, K.knee), P(fp, K.ankle));
+      scores["膝蓋伸展"] = mapScore(kneeExt, 95, 178, 52, 98);
+
+      // 4. 支撐腳旋轉：支撐腳腳掌方向偏轉程度（腳尖橫向位移 / 腳長）
+      const heel = P(fp, S.heel), toe = P(fp, S.foot);
+      const footLen = Math.max(1e-3, dist(heel, toe));
+      const turn = Math.abs(toe.x - heel.x) / footLen;   // 偏橫向 = 有旋轉
+      scores["支撐腳旋轉"] = mapScore(turn, 0.1, 0.85, 58, 95);
+
+      // 5. 身體平衡：肩中心、髖中心是否落在支撐腳踝的垂直線上
+      const supAnkle = P(fp, S.ankle);
+      const dev = (Math.abs(shC.x - supAnkle.x) + Math.abs(hipC.x - supAnkle.x)) / torso;
+      scores["身體平衡"] = mapScore(dev, 0.15, 1.1, 96, 52);   // 偏移越小分數越高（反向）
+
+      // 6. 收腳速度：出腿後踢擊腳踝回收的最大速度（軀幹/秒）
+      let maxSpeed = 0;
+      for (let i = peakIdx + 1; i < frames.length; i++) {
+        const dt = (frames[i].t - frames[i - 1].t) / 1000;
+        if (dt <= 0) continue;
+        const a0 = P(frames[i - 1].lm, K.ankle), a1 = P(frames[i].lm, K.ankle);
+        const sp = dist(a0, a1) / torso / dt;
+        if (sp > maxSpeed) maxSpeed = sp;
+      }
+      scores["收腳速度"] = (peakIdx >= frames.length - 2)
+        ? 72   // 出腿落在錄製尾端、沒拍到回收 → 給中性分
+        : mapScore(maxSpeed, 0.6, 4.5, 55, 97);
+
+      const total = Math.round(metricNames.reduce((s, n) => s + scores[n], 0) / metricNames.length);
+
+      return {
+        total,
+        scores,
+        kickLeg: kickIsLeft ? "左腳" : "右腳",
+        frames: frames.length,
+        kneeExtDeg: Math.round(kneeExt),
+        time: new Date().toLocaleString("zh-TW")
+      };
+    }
+
+    /* ---------- 更新分數畫面 ---------- */
+    function updateScoreUI(result) {
+      totalScoreEl.textContent = result.total;
+      metricNames.forEach(name => {
+        document.getElementById(`score-${name}`).textContent = result.scores[name];
+        document.getElementById(`bar-${name}`).style.width = `${result.scores[name]}%`;
+      });
+      totalCopy.textContent = `偵測到以「${result.kickLeg}」橫踢（取樣 ${result.frames} 影格，出腿膝角約 ${result.kneeExtDeg}°）。分數由真實骨架角度計算。`;
+    }
+
+    /* ---------- AI 教練回饋（依真實分數） ---------- */
+    function updateFeedback(result) {
+      const fb = [];
+      fb.push(`本次偵測為「${result.kickLeg}」橫踢，出腿時膝關節角度約 ${result.kneeExtDeg}°。`);
+
+      if (result.scores["收膝高度"] < 75) fb.push("收膝高度不足，建議練習抬膝定格 3 秒，把膝蓋帶到腰線以上再出腿。");
+      else fb.push("收膝高度良好，已具備高位橫踢的出腿條件。");
+
+      if (result.scores["髖部旋轉"] < 75) fb.push("髖部旋轉偏少，橫踢力量會被卡住，記得用髖帶動而不是只甩小腿。");
+      else fb.push("髖部旋轉充分，力量傳遞表現不錯。");
+
+      if (result.scores["膝蓋伸展"] < 75) fb.push("出腿時膝蓋伸展不夠完全，攻擊距離與力量會打折。");
+
+      if (result.scores["支撐腳旋轉"] < 75) fb.push("支撐腳旋轉不足，容易讓膝蓋承受扭力，記得腳跟轉向目標。");
+
+      if (result.scores["身體平衡"] < 75) fb.push("出腿瞬間身體重心偏移，建議加強核心穩定與支撐腳站位。");
+
+      if (result.scores["收腳速度"] < 75) fb.push("收腳偏慢，踢完要快速把腳收回預備位，避免被反擊。");
+
+      if (result.total >= 88) fb.push("整體接近比賽水準，可加入移動中出腿與連續攻擊訓練。");
+      else if (result.total >= 78) fb.push("動作穩定，下一步加強速度與連續性。");
+      else fb.push("建議先放慢速度，依序修正「抬膝 → 轉髖 → 支撐腳旋轉」三個重點。");
+
+      feedbackList.innerHTML = fb.map(t => `<li>${t}</li>`).join("");
+    }
+
+    /* ---------- 歷史紀錄（localStorage） ---------- */
+    function loadHistory() {
+      try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+      catch (e) { return []; }
+    }
+    function saveHistory() {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(history)); } catch (e) {}
+    }
+    function pushHistory(result) {
+      history.unshift(result);
+      history = history.slice(0, 3);
+      saveHistory();
+      renderHistory();
+    }
+    function renderHistory() {
+      if (history.length === 0) {
+        historyList.innerHTML = `<div class="empty">目前尚無分析紀錄。</div>`;
+        return;
+      }
+      historyList.innerHTML = history.map((item, i) => `
+        <div class="history-item">
+          <div class="history-score">${item.total}</div>
+          <div class="history-meta">
+            第 ${i + 1} 次紀錄（${item.kickLeg || "—"}）<br>
+            ${item.time}<br>
+            收膝 ${item.scores["收膝高度"]}｜轉髖 ${item.scores["髖部旋轉"]}｜平衡 ${item.scores["身體平衡"]}
+          </div>
+        </div>`).join("");
+    }
+
+    /* ---------- 重設 ---------- */
+    function resetDemo() {
+      currentResult = null;
+      totalScoreEl.textContent = "--";
+      metricNames.forEach(name => {
+        document.getElementById(`score-${name}`).textContent = "--";
+        document.getElementById(`bar-${name}`).style.width = "0%";
+      });
+      feedbackList.innerHTML = `<li>尚未分析。請先開啟攝影機，再按「分析橫踢」。</li>`;
+      totalCopy.textContent = "開啟攝影機並站到鏡頭前（建議側面拍攝、全身入鏡），按「分析橫踢」開始錄製評分。";
+      if (!cameraOn) drawIdleSkeleton();
+    }
+
+    /* ---------- 匯出 ---------- */
+    function exportResult() {
+      if (!currentResult) { alert("尚未有分析結果，請先完成一次分析。"); return; }
+      const lines = [
+        "Taekwondo AI Coach — 橫踢骨架分析結果",
+        "----------------------------",
+        `分析時間：${currentResult.time}`,
+        `踢擊腳：${currentResult.kickLeg}　取樣影格：${currentResult.frames}　出腿膝角：${currentResult.kneeExtDeg}°`,
+        `總分：${currentResult.total}`,
+        "",
+        "細項分數：",
+        ...metricNames.map(n => `${n}：${currentResult.scores[n]}`),
+        "",
+        "AI 教練回饋：",
+        ...Array.from(feedbackList.querySelectorAll("li")).map(li => `- ${li.textContent}`)
+      ];
+      const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "taekwondo-ai-coach-result.txt"; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    /* ==========================================================
+       品勢錄製模組（保留骨架動態 → 標準範本對照組）
+       - 手動開始/停止錄製，15fps 降取樣
+       - 逐格骨架存 IndexedDB（可重播、可匯出 JSON）
+       - 自動算起手/結束特徵、回原點誤差、方向差
+    ========================================================== */
+    const REC_FPS = 15;                 // 錄製降取樣
+    const POOMSAE_DB = "tkd_poomsae_db";
+    let VIDEO_W = 640, VIDEO_H = 480;
+
+    const r3 = v => Math.round((v || 0) * 1000) / 1000;
+    const r2 = v => Math.round((v == null ? 1 : v) * 100) / 100;
+    const r1 = v => Math.round((v || 0) * 10) / 10;
+    function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
+
+    // DOM
+    const poomsaeCanvas = document.getElementById("poomsaeCanvas");
+    const poomsaeCtx = poomsaeCanvas.getContext("2d");
+    const pmStatus = document.getElementById("pmStatus");
+    const pmCameraBtn = document.getElementById("pmCameraBtn");
+    const pmStartBtn = document.getElementById("pmStartBtn");
+    const pmStopBtn = document.getElementById("pmStopBtn");
+    const pmImportBtn = document.getElementById("pmImportBtn");
+    const pmImportFile = document.getElementById("pmImportFile");
+    const pmRecDot = document.getElementById("pmRecDot");
+    const pmRecText = document.getElementById("pmRecText");
+    const pmForm = document.getElementById("pmForm");
+    const pmName = document.getElementById("pmName");
+    const pmType = document.getElementById("pmType");
+    const pmDemo = document.getElementById("pmDemo");
+    const pmNote = document.getElementById("pmNote");
+    const pmIsTemplate = document.getElementById("pmIsTemplate");
+    const pmSaveBtn = document.getElementById("pmSaveBtn");
+    const pmCancelBtn = document.getElementById("pmCancelBtn");
+    const pmList = document.getElementById("pmList");
+    const pmCapBar = document.getElementById("pmCapBar");
+    const pmExportAllBtn = document.getElementById("pmExportAllBtn");
+
+    const replayCard = document.getElementById("replayCard");
+    const replayCanvas = document.getElementById("replayCanvas");
+    const replayCtx = replayCanvas.getContext("2d");
+    const replayTitle = document.getElementById("replayTitle");
+    const replayPlayPause = document.getElementById("replayPlayPause");
+    const replaySpeed = document.getElementById("replaySpeed");
+    const replayProgress = document.getElementById("replayProgress");
+    const replayTime = document.getElementById("replayTime");
+    const replayClose = document.getElementById("replayClose");
+
+    const PM_TYPE_LABEL = {
+      kick_roundhouse:"橫踢", kick_front:"前踢", kick_side:"側踢", kick_back:"後踢", kick_backspin:"後旋踢",
+      taegeuk_1:"太極一章", taegeuk_2:"太極二章", taegeuk_3:"太極三章", taegeuk_4:"太極四章",
+      taegeuk_5:"太極五章", taegeuk_6:"太極六章", taegeuk_7:"太極七章", taegeuk_8:"太極八章", other:"自訂"
+    };
+
+    // 錄製狀態
+    let pmRecording = false;
+    let pmFrames = [];
+    let pmStartT = 0, pmLastSample = 0, pmTimer = null;
+    let pmPendingRecord = null;
+
+    // 重播狀態
+    let pb = { rec:null, frames:[], playing:false, startWall:0, speed:1, raf:0, idx:0, pausedT:0 };
+
+    function setPmStatus(kind, text) {
+      pmStatus.className = "status" + (kind === "ok" ? "" : " " + kind);
+      pmStatus.textContent = text;
+    }
+    function updatePmCameraUI() {
+      if (cameraOn) {
+        pmStartBtn.disabled = false;
+        pmCameraBtn.textContent = "攝影機已開啟";
+        pmCameraBtn.disabled = true;
+        setPmStatus("ok", "攝影機運作中（請固定機位）");
+      }
+    }
+
+    /* ---------- 定位輔助框（讓不同次/不同人站位一致） ---------- */
+    function drawPoomsaeGuide(c, w, h) {
+      const mx = w * 0.12, my = h * 0.06;
+      c.save();
+      c.setLineDash([8, 8]);
+      c.strokeStyle = "rgba(114,247,255,0.45)";
+      c.lineWidth = 2;
+      c.strokeRect(mx, my, w - mx * 2, h - my * 2);   // 安全框：全身請落在框內
+      c.setLineDash([]);
+      // 中央起手基準線
+      c.strokeStyle = "rgba(255,209,102,0.5)";
+      c.beginPath(); c.moveTo(w/2, my); c.lineTo(w/2, h - my); c.stroke();
+      // 起手腳位標記（中央偏下）
+      c.fillStyle = "rgba(255,209,102,0.85)";
+      c.beginPath(); c.arc(w/2, h * 0.86, 7, 0, Math.PI*2); c.fill();
+      c.fillStyle = "rgba(114,247,255,0.9)";
+      c.font = "bold 14px Microsoft JhengHei";
+      c.fillText("起手站中央黃點上、全身落在框內", mx + 6, my + 22);
+      c.restore();
+    }
+    function drawPoomsaeIdle() {
+      const w = poomsaeCanvas.width, h = poomsaeCanvas.height;
+      poomsaeCtx.clearRect(0, 0, w, h);
+      poomsaeCtx.fillStyle = "#050c17"; poomsaeCtx.fillRect(0, 0, w, h);
+      drawPoomsaeGuide(poomsaeCtx, w, h);
+      poomsaeCtx.fillStyle = "#72f7ff"; poomsaeCtx.font = "bold 16px Microsoft JhengHei";
+      poomsaeCtx.fillText("請開啟攝影機並固定機位（建議腳架）", w*0.12 + 6, h*0.5);
+    }
+
+    /* ---------- 攝影機回呼：品勢分頁 ---------- */
+    function onPoseResultsPoomsae(results) {
+      const c = poomsaeCtx, w = poomsaeCanvas.width, h = poomsaeCanvas.height;
+      c.save();
+      c.clearRect(0, 0, w, h);
+      if (results.image) c.drawImage(results.image, 0, 0, w, h);
+      drawPoomsaeGuide(c, w, h);
+      const lm = results.poseLandmarks;
+      if (lm) {
+        const col = pmRecording ? "#ff6b6b" : "#72f7ff";
+        if (window.drawConnectors && window.POSE_CONNECTIONS) {
+          drawConnectors(c, lm, POSE_CONNECTIONS, { color: col, lineWidth: 4 });
+          drawLandmarks(c, lm, { color: "#ffd166", lineWidth: 1, radius: 3 });
+        }
+        if (pmRecording) {
+          const now = performance.now();
+          if (now - pmLastSample >= 1000 / REC_FPS) {
+            pmFrames.push({ t: Math.round(now - pmStartT), lm: packLandmarks(lm) });
+            pmLastSample = now;
+          }
+        }
+      } else {
+        c.fillStyle = "rgba(255,107,107,0.9)"; c.font = "bold 16px Microsoft JhengHei";
+        c.fillText("偵測不到人體，請全身入鏡", 30, 40);
+      }
+      c.restore();
+    }
+
+    function packLandmarks(lm) {
+      return lm.map(p => [r3(p.x), r3(p.y), r3(p.z || 0), r2(p.visibility)]);
+    }
+
+    /* ---------- 起手/結束特徵（packed lm 陣列） ---------- */
+    function pHipCenter(lm) { return { x: r3((lm[23][0] + lm[24][0]) / 2), y: r3((lm[23][1] + lm[24][1]) / 2) }; }
+    function pTorso(lm) {
+      const sx=(lm[11][0]+lm[12][0])/2, sy=(lm[11][1]+lm[12][1])/2;
+      const hx=(lm[23][0]+lm[24][0])/2, hy=(lm[23][1]+lm[24][1])/2;
+      return Math.hypot((sx-hx)*ASPECT, sy-hy);
+    }
+    function pShoulderDeg(lm) {
+      return Math.atan2(lm[12][1]-lm[11][1], (lm[12][0]-lm[11][0])*ASPECT) * 180 / Math.PI;
+    }
+    function buildSummary(frames) {
+      if (!frames.length) return null;
+      const f0 = frames[0].lm, fN = frames[frames.length-1].lm;
+      const hip0 = pHipCenter(f0), hipN = pHipCenter(fN);
+      const t0 = pTorso(f0), tN = pTorso(fN);
+      const tRef = Math.max(1e-3, (t0 + tN) / 2);
+      const dx = ((hipN.x - hip0.x) * ASPECT) / tRef;
+      const dy = (hipN.y - hip0.y) / tRef;
+      const sa0 = pShoulderDeg(f0), saN = pShoulderDeg(fN);
+      return {
+        start: { hipCenter: hip0, torsoLen: r3(t0), shoulderAngleDeg: r1(sa0), tStartMs: frames[0].t },
+        end:   { hipCenter: hipN, torsoLen: r3(tN), shoulderAngleDeg: r1(saN), tEndMs: frames[frames.length-1].t },
+        displacement: { dx: r3(dx), dy: r3(dy), returnError: r3(Math.hypot(dx, dy)) },
+        headingDeltaDeg: r1(saN - sa0)
+      };
+    }
+
+    /* ---------- 錄製：開始 / 停止 ---------- */
+    function startPoomsaeRec() {
+      if (!cameraOn) { alert("請先開啟攝影機，並把機位固定（建議腳架）。"); return; }
+      pmFrames = []; pmRecording = true; pmStartT = performance.now(); pmLastSample = 0;
+      pmStartBtn.disabled = true; pmStopBtn.disabled = false;
+      pmRecDot.style.display = "inline-block";
+      pmForm.classList.add("hidden");
+      pmTimer = setInterval(updateRecIndicator, 150);
+      setPmStatus("busy", "錄製中…");
+    }
+    function updateRecIndicator() {
+      const secs = ((performance.now() - pmStartT) / 1000).toFixed(1);
+      pmRecText.textContent = "錄製中 " + secs + "s｜" + pmFrames.length + " 格";
+    }
+    function stopPoomsaeRec() {
+      if (!pmRecording) return;
+      pmRecording = false;
+      clearInterval(pmTimer); pmTimer = null;
+      pmStartBtn.disabled = false; pmStopBtn.disabled = true;
+      pmRecDot.style.display = "none"; pmRecText.textContent = "未錄製";
+      if (pmFrames.length < 5) { setPmStatus("warn", "影格太少，請重錄"); alert("錄到的有效影格太少，請確認全身入鏡後重錄。"); return; }
+      pmPendingRecord = {
+        id: "rec_" + Date.now(), schemaVersion: 1,
+        meta: {
+          name: "", poomsaeType: "taegeuk_1", createdAt: new Date().toISOString(),
+          isTemplate: false, demonstrator: "", note: "",
+          fps: REC_FPS, frameCount: pmFrames.length,
+          durationMs: pmFrames[pmFrames.length-1].t,
+          video: { width: VIDEO_W, height: VIDEO_H, aspect: r3(ASPECT) },
+          encoding: { decimals: 3, hasZ: true, visQuant: 2 }
+        },
+        summary: buildSummary(pmFrames),
+        frames: pmFrames.slice()
+      };
+      pmName.value = "動作範本 " + new Date().toLocaleString("zh-TW");
+      pmType.value = "kick_roundhouse"; pmDemo.value = ""; pmNote.value = ""; pmIsTemplate.checked = false;
+      pmForm.classList.remove("hidden");
+      setPmStatus("ok", "錄製完成（" + pmFrames.length + " 格），請填寫並儲存");
+    }
+    async function savePending() {
+      if (!pmPendingRecord) return;
+      const rec = pmPendingRecord;
+      rec.meta.name = pmName.value.trim() || "未命名";
+      rec.meta.poomsaeType = pmType.value;
+      rec.meta.demonstrator = pmDemo.value.trim();
+      rec.meta.note = pmNote.value.trim();
+      rec.meta.grade = (document.getElementById("pmGrade")?.value||"").trim();
+      rec.meta.angle = document.getElementById("pmAngle")?.value || "front";
+      rec.meta.category = document.getElementById("pmCategory")?.value || "coach";
+      rec.meta.isTemplate = pmIsTemplate.checked;
+      try { await dbPut(rec); } catch (e) { alert("儲存失敗：" + e); return; }
+      pmForm.classList.add("hidden"); pmPendingRecord = null;
+      setPmStatus("ok", "已儲存");
+      refreshPmList();
+    }
+
+    /* ---------- IndexedDB（meta / frames 兩個 store） ---------- */
+    function dbOpen() {
+      return new Promise((res, rej) => {
+        const r = indexedDB.open(POOMSAE_DB, 1);
+        r.onupgradeneeded = e => {
+          const d = e.target.result;
+          if (!d.objectStoreNames.contains("meta")) d.createObjectStore("meta", { keyPath: "id" });
+          if (!d.objectStoreNames.contains("frames")) d.createObjectStore("frames", { keyPath: "id" });
+        };
+        r.onsuccess = e => res(e.target.result);
+        r.onerror = e => rej(e.target.error);
+      });
+    }
+    async function dbPut(rec) {
+      const db = await dbOpen();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(["meta", "frames"], "readwrite");
+        tx.objectStore("meta").put({ id: rec.id, schemaVersion: rec.schemaVersion, meta: rec.meta, summary: rec.summary });
+        tx.objectStore("frames").put({ id: rec.id, frames: rec.frames });
+        tx.oncomplete = () => res();
+        tx.onerror = e => rej(e.target.error);
+      });
+    }
+    async function dbListMeta() {
+      const db = await dbOpen();
+      return new Promise((res, rej) => {
+        const rq = db.transaction("meta").objectStore("meta").getAll();
+        rq.onsuccess = () => res(rq.result || []);
+        rq.onerror = e => rej(e.target.error);
+      });
+    }
+    async function dbGetFull(id) {
+      const db = await dbOpen();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(["meta", "frames"]);
+        let meta, frames;
+        tx.objectStore("meta").get(id).onsuccess = e => meta = e.target.result;
+        tx.objectStore("frames").get(id).onsuccess = e => frames = e.target.result;
+        tx.oncomplete = () => {
+          if (!meta) { res(null); return; }
+          res({ id, schemaVersion: meta.schemaVersion, meta: meta.meta, summary: meta.summary, frames: (frames && frames.frames) || [] });
+        };
+        tx.onerror = e => rej(e.target.error);
+      });
+    }
+    async function dbDelete(id) {
+      const db = await dbOpen();
+      return new Promise((res, rej) => {
+        const tx = db.transaction(["meta", "frames"], "readwrite");
+        tx.objectStore("meta").delete(id);
+        tx.objectStore("frames").delete(id);
+        tx.oncomplete = () => res();
+        tx.onerror = e => rej(e.target.error);
+      });
+    }
+
+    /* ---------- 清單 ---------- */
+    async function refreshPmList() {
+      let metas = [];
+      try { metas = await dbListMeta(); } catch (e) { pmList.innerHTML = `<div class="empty">讀取失敗：${esc(String(e))}</div>`; return; }
+      metas.sort((a, b) => (b.meta.createdAt || "").localeCompare(a.meta.createdAt || ""));
+      if (!metas.length) {
+        pmList.innerHTML = `<div class="empty">尚無錄製。開啟攝影機後按「開始錄製」。</div>`;
+        updateCapBar(); return;
+      }
+      pmList.innerHTML = metas.map(m => {
+        const meta = m.meta, s = m.summary || {};
+        const re = s.displacement ? s.displacement.returnError : "—";
+        const hd = (s.headingDeltaDeg !== undefined) ? s.headingDeltaDeg + "°" : "—";
+        const dur = ((meta.durationMs || 0) / 1000).toFixed(1);
+        const when = (meta.createdAt || "").slice(0, 16).replace("T", " ");
+        return `<div class="rec-card" data-id="${m.id}">
+          <h4>${esc(meta.name || "未命名")} ${meta.isTemplate ? '<span class="tpl-badge">標準範本</span>' : ""}</h4>
+          <div class="meta">${PM_TYPE_LABEL[meta.poomsaeType] || esc(meta.poomsaeType)}｜${esc(meta.demonstrator || "—")}｜${when}<br>
+            時長 ${dur}s｜${meta.frameCount} 格｜回原點誤差 ${re}（軀幹長）｜方向差 ${hd}${meta.note ? "<br>備註：" + esc(meta.note) : ""}</div>
+          <div class="rec-actions">
+            <button class="btn-sm" data-act="play">重播</button>
+            <button class="btn-sm" data-act="tpl">${meta.isTemplate ? "取消標準" : "設為標準"}</button>
+            <button class="btn-sm" data-act="rename">改名</button>
+            <button class="btn-sm" data-act="export">匯出JSON</button>
+            <button class="btn-sm danger" data-act="del">刪除</button>
+          </div>
+        </div>`;
+      }).join("");
+      updateCapBar();
+    }
+    async function updateCapBar() {
+      let txt = "";
+      if (navigator.storage && navigator.storage.estimate) {
+        try {
+          const e = await navigator.storage.estimate();
+          txt = "｜已用約 " + (e.usage/1048576).toFixed(1) + " MB / 可用約 " + (e.quota/1048576).toFixed(0) + " MB";
+        } catch (_) {}
+      }
+      let n = 0; try { n = (await dbListMeta()).length; } catch (_) {}
+      pmCapBar.textContent = "共 " + n + " 筆錄製（存於本機 IndexedDB，不上傳）" + txt;
+    }
+
+    // 清單按鈕（事件委派）
+    pmList.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("button[data-act]");
+      if (!btn) return;
+      const card = ev.target.closest(".rec-card");
+      const id = card && card.dataset.id;
+      if (!id) return;
+      const act = btn.dataset.act;
+      if (act === "play") { playRecord(id); }
+      else if (act === "del") { if (confirm("確定刪除這筆錄製？")) { await dbDelete(id); if (pb.rec && pb.rec.id === id) closeReplay(); refreshPmList(); } }
+      else if (act === "tpl") { const rec = await dbGetFull(id); if (rec) { rec.meta.isTemplate = !rec.meta.isTemplate; await dbPut(rec); refreshPmList(); } }
+      else if (act === "rename") { const rec = await dbGetFull(id); if (rec) { const n = prompt("新名稱：", rec.meta.name || ""); if (n !== null) { rec.meta.name = n.trim() || rec.meta.name; await dbPut(rec); refreshPmList(); } } }
+      else if (act === "export") { const rec = await dbGetFull(id); if (rec) downloadJSON(rec, (rec.meta.name || "poomsae") + ".json"); }
+    });
+
+    /* ---------- 匯出 / 匯入 ---------- */
+    function downloadJSON(obj, filename) {
+      const blob = new Blob([JSON.stringify(obj)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+    }
+    async function exportAll() {
+      const metas = await dbListMeta();
+      if (!metas.length) { alert("目前沒有任何錄製。"); return; }
+      const all = [];
+      for (const m of metas) all.push(await dbGetFull(m.id));
+      downloadJSON(all, "poomsae-all-" + Date.now() + ".json");
+    }
+    async function importJSON(file) {
+      const text = await file.text();
+      let data;
+      try { data = JSON.parse(text); } catch (e) { alert("JSON 解析失敗。"); return; }
+      const arr = Array.isArray(data) ? data : [data];
+      let ok = 0;
+      for (let i = 0; i < arr.length; i++) {
+        const rec = arr[i];
+        if (!rec || !rec.frames || !rec.meta) continue;
+        rec.id = "rec_" + Date.now() + "_" + i;          // 重新配 id，避免覆蓋既有
+        if (!rec.summary) rec.summary = buildSummary(rec.frames);
+        try { await dbPut(rec); ok++; } catch (_) {}
+      }
+      alert("匯入完成：" + ok + " 筆。");
+      refreshPmList();
+    }
+
+    /* ---------- 重播 ---------- */
+    function drawReplayFrame(packed) {
+      const c = replayCtx, w = replayCanvas.width, h = replayCanvas.height;
+      c.clearRect(0, 0, w, h);
+      c.fillStyle = "#050c17"; c.fillRect(0, 0, w, h);
+      const lm = packed.map(p => ({ x: p[0], y: p[1], z: p[2], visibility: p[3] == null ? 1 : p[3] }));
+      if (window.drawConnectors && window.POSE_CONNECTIONS) {
+        drawConnectors(c, lm, POSE_CONNECTIONS, { color: "#72f7ff", lineWidth: 4 });
+        drawLandmarks(c, lm, { color: "#ffd166", lineWidth: 1, radius: 3 });
+      }
+    }
+    async function playRecord(id) {
+      const rec = await dbGetFull(id);
+      if (!rec || !rec.frames.length) { alert("這筆沒有可重播的骨架資料。"); return; }
+      replayCard.hidden = false;
+      replayCanvas.width = (rec.meta.video && rec.meta.video.width) || 640;
+      replayCanvas.height = (rec.meta.video && rec.meta.video.height) || 480;
+      replayTitle.textContent = rec.meta.name || "(未命名)";
+      pb.rec = rec; pb.frames = rec.frames; pb.idx = 0; pb.speed = 1; pb.pausedT = 0;
+      pb.playing = true; pb.startWall = performance.now();
+      replayPlayPause.textContent = "暫停"; replaySpeed.textContent = "1.0×";
+      cancelAnimationFrame(pb.raf);
+      pb.raf = requestAnimationFrame(playbackTick);
+      replayCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    function playbackTick() {
+      if (!pb.rec) return;
+      const frames = pb.frames, dur = frames[frames.length-1].t || 1;
+      if (pb.playing) {
+        const elapsed = (performance.now() - pb.startWall) * pb.speed;
+        while (pb.idx < frames.length-1 && frames[pb.idx+1].t <= elapsed) pb.idx++;
+        const cur = frames[pb.idx].t;
+        drawReplayFrame(frames[pb.idx].lm);
+        replayProgress.value = Math.round(cur / dur * 1000);
+        replayTime.textContent = (cur/1000).toFixed(1) + "s / " + (dur/1000).toFixed(1) + "s";
+        if (cur >= dur) { pb.startWall = performance.now(); pb.idx = 0; }  // loop
+      }
+      pb.raf = requestAnimationFrame(playbackTick);
+    }
+    function togglePlayPause() {
+      if (!pb.rec) return;
+      if (pb.playing) { pb.playing = false; pb.pausedT = pb.frames[pb.idx].t; replayPlayPause.textContent = "播放"; }
+      else { pb.playing = true; pb.startWall = performance.now() - pb.pausedT / pb.speed; replayPlayPause.textContent = "暫停"; }
+    }
+    function cycleSpeed() {
+      if (!pb.rec) return;
+      const order = [0.5, 1, 2]; pb.speed = order[(order.indexOf(pb.speed) + 1) % order.length];
+      replaySpeed.textContent = pb.speed.toFixed(1) + "×";
+      const cur = pb.frames[pb.idx].t;
+      if (pb.playing) pb.startWall = performance.now() - cur / pb.speed; else pb.pausedT = cur;
+    }
+    function closeReplay() {
+      pb.playing = false; pb.rec = null; cancelAnimationFrame(pb.raf);
+      replayCard.hidden = true;
+    }
+    replayPlayPause.addEventListener("click", togglePlayPause);
+    replaySpeed.addEventListener("click", cycleSpeed);
+    replayClose.addEventListener("click", closeReplay);
+    replayProgress.addEventListener("input", () => {
+      if (!pb.rec) return;
+      const frames = pb.frames, dur = frames[frames.length-1].t || 1;
+      const target = replayProgress.value / 1000 * dur;
+      let i = 0; while (i < frames.length-1 && frames[i+1].t <= target) i++;
+      pb.idx = i; pb.pausedT = frames[i].t; pb.startWall = performance.now() - frames[i].t / pb.speed;
+      drawReplayFrame(frames[i].lm);
+      replayTime.textContent = (frames[i].t/1000).toFixed(1) + "s / " + (dur/1000).toFixed(1) + "s";
+    });
+
+    /* ---------- 分頁切換 ---------- */
+    function setTab(name) {
+      currentTab = name;
+      ["kick", "poomsae", "compare", "score", "struct", "judge"].forEach(t => {
+        const panel = document.getElementById("tab-" + t);
+        if (panel) panel.hidden = (t !== name);
+      });
+      document.getElementById("tabBtnKick").classList.toggle("active", name === "kick");
+      document.getElementById("tabBtnPoomsae").classList.toggle("active", name === "poomsae");
+      document.getElementById("tabBtnCompare").classList.toggle("active", name === "compare");
+      document.getElementById("tabBtnScore").classList.toggle("active", name === "score");
+      document.getElementById("tabBtnStruct").classList.toggle("active", name === "struct");
+      document.getElementById("tabBtnJudge").classList.toggle("active", name === "judge");
+      if (name !== "compare") cancelAnimationFrame(cmp.raf);
+      if (name === "poomsae") { refreshPmList(); if (!cameraOn) drawPoomsaeIdle(); updatePmCameraUI(); }
+      if (name === "compare") { refreshCmpSelects(); }
+      if (name === "score") { refreshScoreSelects(); }
+      if (name === "struct") { refreshStructSelect(); }
+      if (name === "judge") { refreshJudgeSelects(); if (!cameraOn) drawJudgeIdle(); updateJudgeCameraUI(); }
+    }
+
+    // 品勢分頁綁定
+    pmCameraBtn.addEventListener("click", openCamera);
+    pmStartBtn.addEventListener("click", startPoomsaeRec);
+    pmStopBtn.addEventListener("click", stopPoomsaeRec);
+    pmSaveBtn.addEventListener("click", savePending);
+    pmCancelBtn.addEventListener("click", () => { pmForm.classList.add("hidden"); pmPendingRecord = null; setPmStatus("ok", "已捨棄這次錄製"); });
+    pmExportAllBtn.addEventListener("click", exportAll);
+    pmImportBtn.addEventListener("click", () => pmImportFile.click());
+    pmImportFile.addEventListener("change", e => { if (e.target.files[0]) importJSON(e.target.files[0]); e.target.value = ""; });
+    document.getElementById("tabBtnKick").addEventListener("click", () => setTab("kick"));
+    document.getElementById("tabBtnPoomsae").addEventListener("click", () => setTab("poomsae"));
+    document.getElementById("tabBtnCompare").addEventListener("click", () => setTab("compare"));
+
+    /* ==========================================================
+       範本對照（疊圖比對）
+       - 標準範本（綠）+ 對照來源（紅，即時鏡頭或另一筆錄製）
+       - 皆以髖中心對齊、軀幹長縮放 → 不受身高/站位影響
+       - 即時算姿勢差異（正規化像素距離）
+    ========================================================== */
+    const cmpCanvas = document.getElementById("cmpCanvas");
+    const cmpCtx = cmpCanvas.getContext("2d");
+    const cmpStatus = document.getElementById("cmpStatus");
+    const cmpTemplateSel = document.getElementById("cmpTemplateSel");
+    const cmpSourceSel = document.getElementById("cmpSourceSel");
+    const cmpApplyBtn = document.getElementById("cmpApplyBtn");
+    const cmpRefreshBtn = document.getElementById("cmpRefreshBtn");
+    const cmpPlayPause = document.getElementById("cmpPlayPause");
+    const cmpSpeed = document.getElementById("cmpSpeed");
+    const cmpError = document.getElementById("cmpError");
+    const cmpStop = document.getElementById("cmpStop");
+    const cmpResetBest = document.getElementById("cmpResetBest");
+
+    let cmp = { tpl: null, stu: null, mode: "live", playing: true, raf: 0, startWall: 0, speed: 1, idx: 0, best: 0 };
+
+    function cmpGrade(s) {
+      if (s >= 85) return "優秀";
+      if (s >= 70) return "良好";
+      if (s >= 55) return "普通";
+      return "待加強";
+    }
+
+    // 把一組 landmarks（packed 陣列或物件）轉成「對齊置中、軀幹長縮放」後的畫布像素點
+    function poseToPixels(lm, cw, ch) {
+      const get = i => Array.isArray(lm[i])
+        ? { x: lm[i][0], y: lm[i][1], v: lm[i][3] }
+        : { x: lm[i].x, y: lm[i].y, v: lm[i].visibility };
+      const L = Array.from({ length: 33 }, (_, i) => get(i));
+      const hip = { x: (L[23].x + L[24].x) / 2, y: (L[23].y + L[24].y) / 2 };
+      const sho = { x: (L[11].x + L[12].x) / 2, y: (L[11].y + L[12].y) / 2 };
+      const torsoPx = Math.hypot((sho.x - hip.x) * cw, (sho.y - hip.y) * ch) || 1;
+      const k = (ch * 0.22) / torsoPx;     // 統一軀幹長 = 22% 畫布高
+      const cx = cw * 0.5, cy = ch * 0.5;
+      return L.map(p => ({
+        x: cx + (p.x - hip.x) * cw * k,
+        y: cy + (p.y - hip.y) * ch * k,
+        v: p.v == null ? 1 : p.v
+      }));
+    }
+    function drawPixelSkeleton(c, pts, color) {
+      c.save();
+      c.strokeStyle = color; c.lineWidth = 4; c.lineCap = "round";
+      c.shadowColor = color; c.shadowBlur = 8;
+      const cons = window.POSE_CONNECTIONS || [];
+      cons.forEach(pair => {
+        const ai = (pair[0] !== undefined) ? pair[0] : pair.start;
+        const bi = (pair[1] !== undefined) ? pair[1] : pair.end;
+        const a = pts[ai], b = pts[bi];
+        if (!a || !b) return;
+        c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke();
+      });
+      c.shadowBlur = 0; c.fillStyle = color;
+      pts.forEach(p => { c.beginPath(); c.arc(p.x, p.y, 3, 0, Math.PI * 2); c.fill(); });
+      c.restore();
+    }
+    function poseError(a, b, ch) {
+      let s = 0, n = 0;
+      for (let i = 0; i < 33; i++) {
+        if ((a[i].v ?? 1) < 0.3 || (b[i].v ?? 1) < 0.3) continue;
+        s += Math.hypot(a[i].x - b[i].x, a[i].y - b[i].y); n++;
+      }
+      if (!n) return 999;
+      return (s / n) / (ch * 0.22) * 100;   // 以軀幹長正規化 → 百分比尺度
+    }
+
+    async function refreshCmpSelects() {
+      let metas = [];
+      try { metas = await dbListMeta(); } catch (_) {}
+      metas.sort((a, b) => (Number(b.meta.isTemplate) - Number(a.meta.isTemplate)) ||
+        (b.meta.createdAt || "").localeCompare(a.meta.createdAt || ""));
+      const opt = m => `<option value="${m.id}">${esc(m.meta.name || "未命名")}${m.meta.isTemplate ? "（標準）" : ""}</option>`;
+      cmpTemplateSel.innerHTML = metas.length ? metas.map(opt).join("") : `<option value="">（尚無錄製）</option>`;
+      cmpSourceSel.innerHTML = `<option value="live">即時鏡頭（攝影機）</option>` +
+        metas.map(m => `<option value="${m.id}">${esc(m.meta.name || "未命名")}</option>`).join("");
+    }
+
+    async function applyCompare() {
+      const tid = cmpTemplateSel.value;
+      if (!tid) { alert("請先到「品勢錄製」錄一筆並設為標準範本。"); return; }
+      cmp.tpl = await dbGetFull(tid);
+      if (!cmp.tpl || !cmp.tpl.frames.length) { alert("此範本沒有可用的骨架資料。"); return; }
+      const src = cmpSourceSel.value;
+      if (src === "live") {
+        cmp.mode = "live"; cmp.stu = null;
+        cmpStatus.textContent = "對照：即時鏡頭";
+        if (!cameraOn) { setPmStatus && null; await openCamera(); }
+      } else {
+        cmp.mode = "recording";
+        cmp.stu = await dbGetFull(src);
+        cmpStatus.textContent = "對照：錄製比對";
+      }
+      cmp.idx = 0; cmp.playing = true; cmp.startWall = performance.now(); cmp.speed = 1; cmp.best = 0;
+      cmpPlayPause.textContent = "暫停"; cmpSpeed.textContent = "1.0×";
+      cancelAnimationFrame(cmp.raf);
+      cmp.raf = requestAnimationFrame(cmpTick);
+    }
+
+    function cmpTick() {
+      if (currentTab !== "compare" || !cmp.tpl) return;
+      const c = cmpCtx, w = cmpCanvas.width, h = cmpCanvas.height;
+      c.clearRect(0, 0, w, h);
+      c.fillStyle = "#050c17"; c.fillRect(0, 0, w, h);
+
+      const tf = cmp.tpl.frames, dur = tf[tf.length - 1].t || 1;
+      if (cmp.playing) {
+        const el = (performance.now() - cmp.startWall) * cmp.speed;
+        while (cmp.idx < tf.length - 1 && tf[cmp.idx + 1].t <= el) cmp.idx++;
+        if (tf[cmp.idx].t >= dur) { cmp.startWall = performance.now(); cmp.idx = 0; }
+      }
+      const tplPts = poseToPixels(tf[cmp.idx].lm, w, h);
+      drawPixelSkeleton(c, tplPts, "#55efc4");   // 綠 = 標準
+
+      let stuLm = null;
+      if (cmp.mode === "live") {
+        stuLm = latestLandmarks;
+      } else if (cmp.stu && cmp.stu.frames.length) {
+        const sf = cmp.stu.frames, sdur = sf[sf.length - 1].t || 1;
+        const prog = tf[cmp.idx].t / dur;        // 依進度百分比對齊兩段
+        const st = prog * sdur;
+        let i = 0; while (i < sf.length - 1 && sf[i + 1].t <= st) i++;
+        stuLm = sf[i].lm;
+      }
+      if (stuLm) {
+        const stuPts = poseToPixels(stuLm, w, h);
+        drawPixelSkeleton(c, stuPts, "#ff6b6b");  // 紅 = 學員/你
+        const err = poseError(tplPts, stuPts, h);
+        const sim = Math.max(0, Math.min(100, Math.round(100 - err)));
+        if (sim > cmp.best) cmp.best = sim;
+        cmpError.textContent = `評分 ${sim}%（${cmpGrade(sim)}）｜本次最佳 ${cmp.best}%（${cmpGrade(cmp.best)}）`;
+      } else {
+        cmpError.textContent = cmp.mode === "live" ? "請開啟攝影機並站到鏡頭前" : "—";
+      }
+      cmp.raf = requestAnimationFrame(cmpTick);
+    }
+
+    function cmpTogglePlay() {
+      if (!cmp.tpl) return;
+      cmp.playing = !cmp.playing;
+      cmpPlayPause.textContent = cmp.playing ? "暫停" : "播放";
+      if (cmp.playing) cmp.startWall = performance.now() - cmp.tpl.frames[cmp.idx].t / cmp.speed;
+    }
+    function cmpCycleSpeed() {
+      if (!cmp.tpl) return;
+      const order = [0.5, 1, 2];
+      cmp.speed = order[(order.indexOf(cmp.speed) + 1) % order.length];
+      cmpSpeed.textContent = cmp.speed.toFixed(1) + "×";
+      if (cmp.playing) cmp.startWall = performance.now() - cmp.tpl.frames[cmp.idx].t / cmp.speed;
+    }
+    function cmpStopFn() {
+      cmp.playing = false; cmp.tpl = null; cmp.stu = null;
+      cancelAnimationFrame(cmp.raf);
+      cmpCtx.clearRect(0, 0, cmpCanvas.width, cmpCanvas.height);
+      cmpCtx.fillStyle = "#050c17"; cmpCtx.fillRect(0, 0, cmpCanvas.width, cmpCanvas.height);
+      cmpStatus.textContent = "已停止";
+      cmpError.textContent = "—";
+    }
+
+    cmpApplyBtn.addEventListener("click", applyCompare);
+    cmpRefreshBtn.addEventListener("click", refreshCmpSelects);
+    cmpPlayPause.addEventListener("click", cmpTogglePlay);
+    cmpSpeed.addEventListener("click", cmpCycleSpeed);
+    cmpStop.addEventListener("click", cmpStopFn);
+    cmpResetBest.addEventListener("click", () => { cmp.best = 0; });
+
+    /* ==========================================================
+       自動評分：定式偵測 + DTW 時間對齊 + 逐項打分
+       - 兩段(標準/學員)各重採樣到固定長度 → 正規化關節點
+       - DTW 對齊(容忍速度差) → 平均距離 = 動作準確度
+       - 偵測定式(速度低谷) → 經 DTW 路徑對到學員 → 定式到位
+       - 路徑彎曲度 = 節奏一致；學員 summary 回原點誤差 = 回正
+    ========================================================== */
+    const SCORE_DIMS = ["動作準確度", "定式到位", "流暢度", "節奏一致", "回正(回原點)"];
+    const KEY_JOINTS = [11,12,13,14,15,16,23,24,25,26,27,28]; // 肩肘腕髖膝踝
+    const SCORE_N = 150;     // 重採樣長度
+
+    const scoreTplSel = document.getElementById("scoreTplSel");
+    const scoreStuSel = document.getElementById("scoreStuSel");
+    const scoreRunBtn = document.getElementById("scoreRunBtn");
+    const scoreRefreshBtn = document.getElementById("scoreRefreshBtn");
+    const scoreStatus = document.getElementById("scoreStatus");
+    const scoreTotalEl = document.getElementById("scoreTotal");
+    const scoreCopy = document.getElementById("scoreCopy");
+    const scoreMetricsEl = document.getElementById("scoreMetrics");
+    const scoreFeedback = document.getElementById("scoreFeedback");
+    const scoreStancesEl = document.getElementById("scoreStances");
+
+    function clampPct(v){ return Math.max(0, Math.min(100, Math.round(v))); }
+    // dist<=good → 100；dist>=bad → 40；中間線性
+    function mapPct(dist, good, bad){
+      if(dist<=good) return 100;
+      if(dist>=bad) return 40;
+      return clampPct(100 - (dist-good)/(bad-good)*60);
+    }
+    // packed lm → 正規化關節點(髖中心原點、軀幹長為單位、x 乘 ASPECT)
+    function scoreNormPoints(lm){
+      const hx=(lm[23][0]+lm[24][0])/2, hy=(lm[23][1]+lm[24][1])/2;
+      const sx=(lm[11][0]+lm[12][0])/2, sy=(lm[11][1]+lm[12][1])/2;
+      const torso = Math.hypot((sx-hx)*ASPECT, sy-hy) || 1e-3;
+      const out = {};
+      KEY_JOINTS.forEach(i => { out[i] = {
+        x: ((lm[i][0]-hx)*ASPECT)/torso, y: (lm[i][1]-hy)/torso, v: (lm[i][3]==null?1:lm[i][3])
+      }; });
+      return out;
+    }
+    function scoreFrameDist(A, B){
+      let s=0, n=0;
+      KEY_JOINTS.forEach(i => { if((A[i].v??1)<0.3 || (B[i].v??1)<0.3) return; s += Math.hypot(A[i].x-B[i].x, A[i].y-B[i].y); n++; });
+      return n ? s/n : 2;
+    }
+    // 依時間均勻重採樣到 N 格（取最接近時間的那格）
+    function scoreResample(frames, N){
+      const dur = frames[frames.length-1].t || 1, out=[];
+      for(let k=0;k<N;k++){ const tt = dur*k/(N-1); let i=0; while(i<frames.length-1 && frames[i+1].t<=tt) i++; out.push(frames[i]); }
+      return out;
+    }
+    // DTW（Sakoe-Chiba band），回傳 {dist, path, meanDist, band}
+    function scoreDTW(A, B, bandRatio){
+      const n=A.length, m=B.length, INF=1e12;
+      const band = Math.max(Math.abs(n-m)+1, Math.round((bandRatio||0.1)*Math.max(n,m)));
+      const D = Array.from({length:n+1}, ()=> new Float64Array(m+1).fill(INF));
+      D[0][0]=0;
+      for(let i=1;i<=n;i++){
+        const jlo=Math.max(1, i-band), jhi=Math.min(m, i+band);
+        for(let j=jlo;j<=jhi;j++){
+          const c = scoreFrameDist(A[i-1], B[j-1]);
+          D[i][j] = c + Math.min(D[i-1][j], D[i][j-1], D[i-1][j-1]);
+        }
+      }
+      let i=n, j=m, path=[];
+      while(i>0 && j>0){ path.push([i-1,j-1]); const a=D[i-1][j], b=D[i][j-1], c=D[i-1][j-1];
+        if(c<=a && c<=b){i--;j--;} else if(a<=b){i--;} else {j--;} }
+      path.reverse();
+      return { dist:D[n][m], path, meanDist:D[n][m]/Math.max(1,path.length), band };
+    }
+    // 定式偵測：速度低谷（局部極小且低於門檻），合併相鄰
+    function scoreDetectStances(P){
+      const vel = P.map((p,i)=> i===0?0:scoreFrameDist(P[i-1], p));
+      const mean = vel.reduce((a,b)=>a+b,0)/Math.max(1,vel.length);
+      const thr = mean*0.6, win = Math.max(3, Math.floor(P.length*0.05));
+      let raw=[];
+      for(let i=2;i<vel.length-2;i++){ if(vel[i]<thr && vel[i]<=vel[i-1] && vel[i]<=vel[i+1]) raw.push(i); }
+      const merged=[]; raw.forEach(i=>{ if(!merged.length || i-merged[merged.length-1]>win) merged.push(i); });
+      if(merged.length===0){ for(let k=1;k<=6;k++) merged.push(Math.round(P.length*k/7)); } // 找不到 → 平均取點
+      return merged.slice(0, 14);
+    }
+    // 流暢度 Flow（無因次 jerk 代理；複用結構評分的速度/平滑工具）
+    function computeFlowScore(frames){
+      if(frames.length<6) return 70;
+      const torsoMed = median(frames.map(f=>sTorso(f.lm)));
+      let sp=[]; for(let i=1;i<frames.length;i++){ const dt=Math.max(1,(frames[i].t-frames[i-1].t))/1000; sp.push(sSpeed(frames[i-1].lm,frames[i].lm,dt,torsoMed)); }
+      sp=smooth(sp,3);
+      const acc=[]; for(let i=1;i<sp.length;i++) acc.push(sp[i]-sp[i-1]);
+      const jk=[]; for(let i=1;i<acc.length;i++) jk.push(Math.abs(acc[i]-acc[i-1]));
+      const meanJerk = jk.length? jk.reduce((a,b)=>a+b,0)/jk.length : 0;
+      return clampPct(pctDown(meanJerk, 0.6, 4.5));
+    }
+
+    async function refreshScoreSelects(){
+      let metas=[]; try{ metas=await dbListMeta(); }catch(_){}
+      metas.sort((a,b)=> (Number(b.meta.isTemplate)-Number(a.meta.isTemplate)) || (b.meta.createdAt||"").localeCompare(a.meta.createdAt||""));
+      const opt = m => `<option value="${m.id}">${esc(m.meta.name||"未命名")}${m.meta.isTemplate?"（標準）":""}</option>`;
+      scoreTplSel.innerHTML = metas.length ? metas.map(opt).join("") : `<option value="">（尚無錄製）</option>`;
+      scoreStuSel.innerHTML = metas.length ? metas.map(opt).join("") : `<option value="">（尚無錄製）</option>`;
+      if(metas.length>1) scoreStuSel.selectedIndex = 1;  // 預設學員選第二筆，避免跟標準同一筆
+    }
+
+    function initScoreMetrics(){
+      scoreMetricsEl.innerHTML = SCORE_DIMS.map(name => `
+        <div class="metric">
+          <div class="metric-top"><span>${name}</span><strong id="sm-${name}">--</strong></div>
+          <div class="bar"><div class="bar-fill" id="sb-${name}"></div></div>
+        </div>`).join("");
+    }
+
+    async function runAutoScore(){
+      const tid = scoreTplSel.value, sid = scoreStuSel.value;
+      if(!tid || !sid){ alert("請先有錄製，並選擇標準範本與學員錄製。"); return; }
+      if(tid===sid){ if(!confirm("標準與學員選了同一筆，分數會接近滿分。仍要繼續嗎？")) return; }
+      scoreStatus.textContent = "評分中…"; scoreRunBtn.disabled = true;
+      try{
+        const tpl = await dbGetFull(tid), stu = await dbGetFull(sid);
+        if(!tpl?.frames?.length || !stu?.frames?.length){ alert("有一筆缺少骨架資料。"); return; }
+
+        const tF = scoreResample(tpl.frames, SCORE_N), sF = scoreResample(stu.frames, SCORE_N);
+        const tP = tF.map(f=>scoreNormPoints(f.lm)), sP = sF.map(f=>scoreNormPoints(f.lm));
+        const dtw = scoreDTW(tP, sP, 0.1);   // Sakoe-Chiba band 10%
+
+        // 1) 動作準確度
+        const accuracy = mapPct(dtw.meanDist, 0.06, 0.5);
+
+        // 2) 定式到位（標準定式 → DTW 路徑對到學員）
+        const tpl2stu = new Array(SCORE_N).fill(null);
+        dtw.path.forEach(([i,j])=>{ if(tpl2stu[i]==null) tpl2stu[i]=j; else tpl2stu[i]=Math.max(tpl2stu[i], j); });
+        for(let i=0;i<SCORE_N;i++){ if(tpl2stu[i]==null) tpl2stu[i] = i; }
+        const stances = scoreDetectStances(tP);
+        const stanceRows = stances.map(i=>{
+          const j = tpl2stu[i];
+          const d = scoreFrameDist(tP[i], sP[j]);
+          return { i, j, score: mapPct(d, 0.06, 0.55), tTime: tF[i].t, sTime: sF[j].t };
+        });
+        const stanceAvg = stanceRows.length ? clampPct(stanceRows.reduce((a,r)=>a+r.score,0)/stanceRows.length) : accuracy;
+
+        // 3) 流暢度 Flow（學員整段動作的 jerk 平滑度）
+        const flow = computeFlowScore(stu.frames);
+
+        // 4) 節奏一致（DTW 路徑彎曲 + TempoRatio 時長比）
+        let warp=0; dtw.path.forEach(([i,j])=>{ warp += Math.abs(i/(SCORE_N-1) - j/(SCORE_N-1)); });
+        warp /= dtw.path.length;
+        const warpScore = clampPct(100 - warp*260);
+        const tempoRatio = (sF[SCORE_N-1].t||1)/(tF[SCORE_N-1].t||1);
+        const tempoScore = clampPct(100 - Math.abs(Math.log(tempoRatio))*180); // log 偏離 1 懲罰
+        const rhythm = clampPct(warpScore*0.6 + tempoScore*0.4);
+
+        // 5) 回正（學員回原點誤差，越小越好）
+        const re = stu.summary?.displacement?.returnError;
+        const ret = (re==null) ? 75 : mapPct(re, 0.12, 0.6);
+
+        // 加權（貼近藍圖四大分數精神）：準確0.30 定式0.25 流暢0.15 節奏0.15 回正0.15
+        const total = clampPct(accuracy*0.30 + stanceAvg*0.25 + flow*0.15 + rhythm*0.15 + ret*0.15);
+        renderScore(total, { "動作準確度":accuracy, "定式到位":stanceAvg, "流暢度":flow, "節奏一致":rhythm, "回正(回原點)":ret }, stanceRows, tpl, stu);
+        scoreStatus.textContent = "評分完成";
+      }catch(e){ console.error(e); alert("評分失敗：" + e); scoreStatus.textContent = "評分失敗"; }
+      finally{ scoreRunBtn.disabled = false; }
+    }
+
+    function renderScore(total, dims, stanceRows, tpl, stu){
+      scoreTotalEl.textContent = total;
+      SCORE_DIMS.forEach(name=>{
+        const v = clampPct(dims[name]);
+        document.getElementById("sm-"+name).textContent = v;
+        document.getElementById("sb-"+name).style.width = v + "%";
+      });
+      scoreCopy.textContent = `標準「${tpl.meta.name||"—"}」 vs 學員「${stu.meta.name||"—"}」，已用 DTW 對齊 ${SCORE_N} 取樣點，偵測 ${stanceRows.length} 個定式。`;
+
+      // 回饋：點出最弱面向 + 偏差大的定式
+      const fb = [];
+      const sorted = SCORE_DIMS.map(n=>({n, v:clampPct(dims[n])})).sort((a,b)=>a.v-b.v);
+      const tips = {
+        "動作準確度":"整體姿勢與標準差距較大，先放慢逐動作對照角度。",
+        "定式到位":"定式（亮相）瞬間沒到位，建議每個定式定格 3 秒檢查角度與重心。",
+        "節奏一致":"節奏與標準落差大（太快或忽快忽慢），跟著標準速度打一次。",
+        "回正(回原點)":"收式沒回到起點，注意走位與最後一步落點。"
+      };
+      if(total>=85) fb.push("整體完成度高，接近標準範本。");
+      else if(total>=70) fb.push("動作大致正確，再修細節即可。");
+      else fb.push("與標準仍有差距，建議分段慢練。");
+      fb.push(`最需加強：${sorted[0].n}（${sorted[0].v} 分）— ${tips[sorted[0].n]}`);
+      if(sorted[1].v<75) fb.push(`其次：${sorted[1].n}（${sorted[1].v} 分）— ${tips[sorted[1].n]}`);
+      const weak = stanceRows.filter(r=>r.score<70).slice(0,3);
+      if(weak.length) fb.push("偏差較大的定式：" + weak.map(r=>`第${stanceRows.indexOf(r)+1}個(${r.score}分)`).join("、"));
+      scoreFeedback.innerHTML = fb.map(t=>`<li>${esc(t)}</li>`).join("");
+
+      // 逐定式明細
+      if(!stanceRows.length){ scoreStancesEl.innerHTML = `<div class="empty">未偵測到定式。</div>`; return; }
+      scoreStancesEl.innerHTML = `<div class="rec-list" style="padding:0">` + stanceRows.map((r,idx)=>{
+        const col = r.score>=80?"var(--green)":r.score>=65?"var(--yellow)":"var(--red)";
+        return `<div class="history-item">
+          <div class="history-score" style="color:${col}">${r.score}</div>
+          <div class="history-meta">第 ${idx+1} 個定式<br>標準 ${(r.tTime/1000).toFixed(1)}s ↔ 學員 ${(r.sTime/1000).toFixed(1)}s</div>
+        </div>`;
+      }).join("") + `</div>`;
+    }
+
+    scoreRunBtn.addEventListener("click", runAutoScore);
+    scoreRefreshBtn.addEventListener("click", refreshScoreSelects);
+    document.getElementById("tabBtnScore").addEventListener("click", () => setTab("score"));
+    initScoreMetrics();
+
+    /* ==========================================================
+       結構評分（免範本）— 藍圖 §11 MVP 的 5 個客觀結構指標
+       單支錄製即可算，不需標準範本：
+         重心垂直穩定 / 動作流暢度 / 演武線閉合 / 動靜節奏 / 起收式一致
+       權重：重心0.25 流暢0.22 演武線0.20 節奏0.18 起收0.15
+    ========================================================== */
+    const STRUCT_DIMS = ["重心穩定","動作流暢度","演武線閉合","動靜節奏","起收式一致"];
+    const STRUCT_W = { "重心穩定":0.25, "動作流暢度":0.22, "演武線閉合":0.20, "動靜節奏":0.18, "起收式一致":0.15 };
+    const SJ = [11,12,13,14,15,16,23,24,25,26,27,28]; // 評估用關節
+    const structSel = document.getElementById("structSel");
+    const structRunBtn = document.getElementById("structRunBtn");
+    const structRefreshBtn = document.getElementById("structRefreshBtn");
+    const structStatus = document.getElementById("structStatus");
+    const structTotalEl = document.getElementById("structTotal");
+    const structGradeEl = document.getElementById("structGrade");
+    const structCopy = document.getElementById("structCopy");
+    const structMetricsEl = document.getElementById("structMetrics");
+    const structFeedback = document.getElementById("structFeedback");
+
+    // 結構分用幾何（packed lm 陣列；x 乘 ASPECT 校正）
+    function sHip(lm){ return { x:((lm[23][0]+lm[24][0])/2)*ASPECT, y:(lm[23][1]+lm[24][1])/2 }; }
+    function sFeet(lm){ return { x:((lm[27][0]+lm[28][0])/2)*ASPECT, y:(lm[27][1]+lm[28][1])/2 }; }
+    function sTorso(lm){ const sx=(lm[11][0]+lm[12][0])/2*ASPECT, sy=(lm[11][1]+lm[12][1])/2,
+      hx=(lm[23][0]+lm[24][0])/2*ASPECT, hy=(lm[23][1]+lm[24][1])/2; return Math.hypot(sx-hx,sy-hy)||1e-3; }
+    function sBodyH(lm){ const ankY=Math.max(lm[27][1],lm[28][1]); const headY=lm[0][1]; return Math.max(1e-3, ankY-headY); }
+    function sShoulderDeg(lm){ return Math.atan2(lm[12][1]-lm[11][1],(lm[12][0]-lm[11][0])*ASPECT)*180/Math.PI; }
+    // 兩格之間「整體速度」= 評估關節平均位移 / dt（以軀幹長正規化）
+    function sSpeed(a,b,dt,torso){ let s=0,n=0; SJ.forEach(i=>{ const dx=(b[i][0]-a[i][0])*ASPECT, dy=b[i][1]-a[i][1]; s+=Math.hypot(dx,dy); n++; }); return (s/n)/torso/dt; }
+    function smooth(arr,w){ // 簡易移動平均（代替 Savitzky-Golay）
+      const out=arr.slice(); const h=Math.floor(w/2);
+      for(let i=0;i<arr.length;i++){ let s=0,c=0; for(let j=-h;j<=h;j++){ const k=i+j; if(k>=0&&k<arr.length){s+=arr[k];c++;} } out[i]=s/c; }
+      return out;
+    }
+    function pctDown(v,good,bad){ if(v<=good)return 100; if(v>=bad)return 40; return Math.round(100-(v-good)/(bad-good)*60); }
+    function structGrade(t){ return t>=90?"S（卓越）":t>=80?"A（優秀）":t>=70?"B（良好）":t>=60?"C（普通）":"D（待加強）"; }
+
+    function computeStructMetrics(frames){
+      if(frames.length<8) return null;
+      const torsoMed = median(frames.map(f=>sTorso(f.lm)));
+      const Href = median(frames.map(f=>sBodyH(f.lm)));
+
+      // 1) 重心垂直穩定：σ(髖 y)/身高（越小越穩）
+      const hipYs = frames.map(f=>sHip(f.lm).y);
+      const balStd = std(hipYs)/Href;
+      const balance = pctDown(balStd, 0.012, 0.09);
+
+      // 速度序列（平滑後）
+      let speeds=[];
+      for(let i=1;i<frames.length;i++){ const dt=Math.max(1,(frames[i].t-frames[i-1].t))/1000;
+        speeds.push(sSpeed(frames[i-1].lm, frames[i].lm, dt, torsoMed)); }
+      speeds = smooth(speeds,3);
+
+      // 2) 動作流暢度：jerk 代理（速度的二階差分大小）+ 速度峰數
+      const acc = []; for(let i=1;i<speeds.length;i++) acc.push(speeds[i]-speeds[i-1]);
+      const jerk = []; for(let i=1;i<acc.length;i++) jerk.push(Math.abs(acc[i]-acc[i-1]));
+      const meanJerk = jerk.length? jerk.reduce((a,b)=>a+b,0)/jerk.length : 0;
+      const flow = pctDown(meanJerk, 0.6, 4.5);
+
+      // 3) 演武線閉合：起手 vs 結束 雙腳中點位移 / 身高
+      const feet0=sFeet(frames[0].lm), feetN=sFeet(frames[frames.length-1].lm);
+      const closeErr = Math.hypot(feetN.x-feet0.x, feetN.y-feet0.y)/Href;
+      const closure = pctDown(closeErr, 0.08, 0.5);
+
+      // 4) 動靜節奏：偵測停頓段(定式)＋移動時間比是否在合理帶
+      const eps = median(speeds)*0.45 + 1e-4;
+      let moving=0, still=0, pauseSegs=0, inPause=false, pauseLen=0;
+      const dtAvg = (frames[frames.length-1].t-frames[0].t)/1000/Math.max(1,speeds.length);
+      speeds.forEach(v=>{ if(v<eps){ still++; pauseLen+=dtAvg; if(!inPause){inPause=true;} }
+        else { moving++; if(inPause && pauseLen>=0.25) pauseSegs++; inPause=false; pauseLen=0; } });
+      if(inPause && pauseLen>=0.25) pauseSegs++;
+      const movRatio = moving/Math.max(1,moving+still);
+      const ratioScore = (movRatio>=0.4 && movRatio<=0.85) ? 100 : pctDown(Math.abs(movRatio-0.62), 0.1, 0.45);
+      const segScore = Math.min(100, 50 + pauseSegs*12); // 有清楚動靜交替加分
+      const rhythm = Math.round(ratioScore*0.5 + segScore*0.5);
+
+      // 5) 起收式一致：方向差 + 首末姿勢距離
+      const headDiff = Math.abs(sShoulderDeg(frames[frames.length-1].lm)-sShoulderDeg(frames[0].lm));
+      const poseDiff = frameDistPacked(frames[0].lm, frames[frames.length-1].lm, torsoMed);
+      const startend = Math.round(pctDown(headDiff,8,40)*0.5 + pctDown(poseDiff,0.06,0.5)*0.5);
+
+      const dims = {"重心穩定":balance,"動作流暢度":flow,"演武線閉合":closure,"動靜節奏":rhythm,"起收式一致":startend};
+      const total = Math.round(STRUCT_DIMS.reduce((a,n)=>a+dims[n]*STRUCT_W[n],0));
+      return { dims, total, info:{ balStd:balStd.toFixed(3), closeErr:closeErr.toFixed(3), pauseSegs, movRatio:movRatio.toFixed(2), frames:frames.length } };
+    }
+    // 首末姿勢距離（髖中心對齊、軀幹長正規化）
+    function frameDistPacked(a,b,torso){
+      const ha=sHip(a), hb=sHip(b); let s=0,n=0;
+      SJ.forEach(i=>{ const ax=(a[i][0]*ASPECT-ha.x)/torso, ay=(a[i][1]-ha.y)/torso,
+        bx=(b[i][0]*ASPECT-hb.x)/torso, by=(b[i][1]-hb.y)/torso; s+=Math.hypot(ax-bx,ay-by); n++; });
+      return n? s/n : 1;
+    }
+    function median(arr){ const a=arr.slice().sort((x,y)=>x-y); const m=a.length>>1; return a.length? (a.length%2?a[m]:(a[m-1]+a[m])/2):0; }
+    function std(arr){ const m=arr.reduce((a,b)=>a+b,0)/Math.max(1,arr.length); return Math.sqrt(arr.reduce((a,b)=>a+(b-m)*(b-m),0)/Math.max(1,arr.length)); }
+
+    function initStructMetrics(){
+      structMetricsEl.innerHTML = STRUCT_DIMS.map(n=>`
+        <div class="metric"><div class="metric-top"><span>${n}（權重 ${Math.round(STRUCT_W[n]*100)}%）</span><strong id="stm-${n}">--</strong></div>
+        <div class="bar"><div class="bar-fill" id="stb-${n}"></div></div>`).join("");
+    }
+    async function refreshStructSelect(){
+      let metas=[]; try{ metas=await dbListMeta(); }catch(_){}
+      metas.sort((a,b)=> (b.meta.createdAt||"").localeCompare(a.meta.createdAt||""));
+      structSel.innerHTML = metas.length ? metas.map(m=>`<option value="${m.id}">${esc(m.meta.name||"未命名")}${m.meta.isTemplate?"（標準）":""}</option>`).join("")
+        : `<option value="">（尚無錄製）</option>`;
+    }
+    async function runStructScore(){
+      const id=structSel.value;
+      if(!id){ alert("請先到「動作錄製」錄一筆，或匯入一筆錄製。"); return; }
+      structStatus.textContent="評分中…"; structRunBtn.disabled=true;
+      try{
+        const rec=await dbGetFull(id);
+        if(!rec?.frames?.length){ alert("此錄製沒有骨架資料。"); return; }
+        const r=computeStructMetrics(rec.frames);
+        if(!r){ alert("影格太少，無法評分。"); return; }
+        structTotalEl.textContent=r.total;
+        const g=structGrade(r.total);
+        structGradeEl.textContent="· "+g;
+        const gc=r.total>=80?"var(--green)":r.total>=70?"var(--cyan)":r.total>=60?"var(--yellow)":"var(--red)";
+        structTotalEl.style.color=gc;
+        STRUCT_DIMS.forEach(n=>{ const v=clampPct(r.dims[n]);
+          document.getElementById("stm-"+n).textContent=v;
+          const bar=document.getElementById("stb-"+n); bar.style.width=v+"%";
+          bar.style.background = v>=80?"var(--green)":v>=65?"var(--cyan)":v>=50?"var(--yellow)":"var(--red)";
+        });
+        structCopy.textContent=`「${rec.meta.name||"未命名"}」客觀結構分。取樣 ${r.info.frames} 格，偵測 ${r.info.pauseSegs} 個停頓(定式)，移動時間比 ${r.info.movRatio}。`;
+        // 回饋
+        const arr=STRUCT_DIMS.map(n=>({n,v:r.dims[n]})).sort((a,b)=>a.v-b.v);
+        const tip={
+          "重心穩定":"重心上下起伏偏大，加強核心與步法落地穩定，避免身體上下晃。",
+          "動作流暢度":"動作有頓挫/抖動，放慢分解、把每招銜接練順。",
+          "演武線閉合":"沒回到起點，注意走位與最後一步落點。",
+          "動靜節奏":"動靜層次不分明，該停的定式要停滿、該快要乾脆。",
+          "起收式一致":"起式與收式姿勢/方向不一致，收式要回到預備式同樣位置與朝向。"
+        };
+        const fb=[];
+        fb.push(`總分 ${r.total}（${g}）。最強：${arr[arr.length-1].n}（${clampPct(arr[arr.length-1].v)}）。`);
+        fb.push(`最需加強：${arr[0].n}（${clampPct(arr[0].v)}）— ${tip[arr[0].n]}`);
+        if(arr[1].v<75) fb.push(`其次：${arr[1].n}（${clampPct(arr[1].v)}）— ${tip[arr[1].n]}`);
+        structFeedback.innerHTML=fb.map(t=>`<li>${esc(t)}</li>`).join("");
+        structStatus.textContent="評分完成";
+      }catch(e){ console.error(e); alert("評分失敗："+e); structStatus.textContent="評分失敗"; }
+      finally{ structRunBtn.disabled=false; }
+    }
+    structRunBtn.addEventListener("click", runStructScore);
+    structRefreshBtn.addEventListener("click", refreshStructSelect);
+    document.getElementById("tabBtnStruct").addEventListener("click", ()=>setTab("struct"));
+    initStructMetrics();
+
+    /* ==========================================================
+       即時評判（一鍵）：開相機 → 選標準型 → 開始評判(錄) → 結束 → DTW 評分
+       複用 scoreResample/scoreNormPoints/scoreDTW/scoreDetectStances/
+       computeFlowScore/mapPct/clampPct/SCORE_N/buildSummary。
+    ========================================================== */
+    const JUDGE_DIMS = ["動作準確度","定式到位","流暢度","節奏一致","回正(回原點)"];
+    const judgeCanvas = document.getElementById("judgeCanvas");
+    const judgeCtx = judgeCanvas.getContext("2d");
+    const judgeTplSel = document.getElementById("judgeTplSel");
+    const judgeStatus = document.getElementById("judgeStatus");
+    const judgeCamBtn = document.getElementById("judgeCamBtn");
+    const judgeStartBtn = document.getElementById("judgeStartBtn");
+    const judgeStopBtn = document.getElementById("judgeStopBtn");
+    const judgeRefreshBtn = document.getElementById("judgeRefreshBtn");
+    const judgeRecDot = document.getElementById("judgeRecDot");
+    const judgeRecText = document.getElementById("judgeRecText");
+    const judgeResultPill = document.getElementById("judgeResultPill");
+    const judgeTotalEl = document.getElementById("judgeTotal");
+    const judgeGradeEl = document.getElementById("judgeGrade");
+    const judgeCopy = document.getElementById("judgeCopy");
+    const judgeMetricsEl = document.getElementById("judgeMetrics");
+    const judgeStancesEl = document.getElementById("judgeStances");
+
+    let judging = false, judgeFrames = [], judgeStartT = 0, judgeLastSample = 0, judgeTimer = null;
+
+    function setJudgeStatus(kind, text){ judgeStatus.className = "status" + (kind==="ok"?"":" "+kind); judgeStatus.textContent = text; }
+    function updateJudgeCameraUI(){
+      if(cameraOn){ judgeStartBtn.disabled = false; judgeCamBtn.textContent = "攝影機已開啟"; judgeCamBtn.disabled = true;
+        if(judgeStatus.textContent.indexOf("開啟攝影機")>=0) setJudgeStatus("ok","攝影機運作中（請固定機位）"); }
+    }
+    function drawJudgeIdle(){
+      const w=judgeCanvas.width,h=judgeCanvas.height;
+      judgeCtx.clearRect(0,0,w,h); judgeCtx.fillStyle="#050c17"; judgeCtx.fillRect(0,0,w,h);
+      judgeCtx.fillStyle="#5be6ff"; judgeCtx.font="bold 16px Microsoft JhengHei";
+      judgeCtx.fillText("選標準型 → 開啟攝影機 → 開始評判", w*0.1, h*0.5);
+    }
+    function onPoseResultsJudge(results){
+      const c=judgeCtx, w=judgeCanvas.width, h=judgeCanvas.height;
+      c.save(); c.clearRect(0,0,w,h);
+      if(results.image) c.drawImage(results.image,0,0,w,h);
+      const lm=results.poseLandmarks;
+      if(lm){
+        const col=judging?"#ff5d6c":"#5be6ff";
+        if(window.drawConnectors && window.POSE_CONNECTIONS){
+          drawConnectors(c, lm, POSE_CONNECTIONS, {color:col,lineWidth:4});
+          drawLandmarks(c, lm, {color:"#ffd166",lineWidth:1,radius:3});
+        }
+        if(judging){
+          const now=performance.now();
+          if(now-judgeLastSample >= 1000/REC_FPS){
+            judgeFrames.push({ t:Math.round(now-judgeStartT), lm: packLandmarks(lm) });
+            judgeLastSample = now;
+          }
+        }
+      } else {
+        c.fillStyle="rgba(255,93,108,.9)"; c.font="bold 16px Microsoft JhengHei";
+        c.fillText("偵測不到人體，請全身入鏡", 30, 38);
+      }
+      c.restore();
+    }
+
+    async function refreshJudgeSelects(){
+      let metas=[]; try{ metas=await dbListMeta(); }catch(_){}
+      metas = metas.filter(m=>m.meta.isTemplate);   // 只列標準範本
+      metas.sort((a,b)=> (a.meta.poomsaeType||"").localeCompare(b.meta.poomsaeType||""));
+      judgeTplSel.innerHTML = metas.length ? metas.map(m=>`<option value="${m.id}">${esc(m.meta.name||"未命名")}</option>`).join("")
+        : `<option value="">（尚無標準範本，請先匯入）</option>`;
+    }
+
+    function initJudgeMetrics(){
+      judgeMetricsEl.innerHTML = JUDGE_DIMS.map(n=>`
+        <div class="metric"><div class="metric-top"><span>${n}</span><strong id="jm-${n}">--</strong></div>
+        <div class="bar"><div class="bar-fill" id="jb-${n}"></div></div>`).join("");
+    }
+
+    function startJudge(){
+      if(!cameraOn){ alert("請先開啟攝影機。"); return; }
+      if(!judgeTplSel.value){ alert("請先選一個標準型（沒有的話到動作錄製匯入）。"); return; }
+      judgeFrames=[]; judging=true; judgeStartT=performance.now(); judgeLastSample=0;
+      judgeStartBtn.disabled=true; judgeStopBtn.disabled=false;
+      judgeRecDot.style.display="inline-block";
+      judgeTimer=setInterval(()=>{ const s=((performance.now()-judgeStartT)/1000).toFixed(1);
+        judgeRecText.textContent="評判中 "+s+"s｜"+judgeFrames.length+" 格"; }, 150);
+      setJudgeStatus("busy","評判中…請從起式打到收式");
+    }
+    async function stopJudge(){
+      if(!judging) return;
+      judging=false; clearInterval(judgeTimer); judgeTimer=null;
+      judgeStartBtn.disabled=false; judgeStopBtn.disabled=true;
+      judgeRecDot.style.display="none"; judgeRecText.textContent="未評判";
+      if(judgeFrames.length<10){ setJudgeStatus("warn","錄到的影格太少"); alert("評判時間太短，請完整打完一套再按結束。"); return; }
+      setJudgeStatus("busy","評分中…"); judgeResultPill.className="pill"; judgeResultPill.textContent="計算中…";
+      try{
+        const tpl = await dbGetFull(judgeTplSel.value);
+        if(!tpl?.frames?.length){ alert("標準型沒有骨架資料。"); return; }
+        const summary = buildSummary(judgeFrames);
+        const res = computeMatchScore(tpl.frames, judgeFrames, summary);
+        if(!res){ alert("資料不足，無法評分。"); return; }
+        renderJudge(res, tpl);
+        setJudgeStatus("ok","評判完成");
+      }catch(e){ console.error(e); alert("評分失敗："+e); setJudgeStatus("bad","評分失敗"); }
+    }
+
+    // 學員 frames vs 標準 frames → 正確度（複用自動評分的演算法）
+    function computeMatchScore(tplFrames, stuFrames, stuSummary){
+      if(!tplFrames.length || stuFrames.length<10) return null;
+      const tF=scoreResample(tplFrames,SCORE_N), sF=scoreResample(stuFrames,SCORE_N);
+      const tP=tF.map(f=>scoreNormPoints(f.lm)), sP=sF.map(f=>scoreNormPoints(f.lm));
+      const dtw=scoreDTW(tP,sP,0.1);
+      const accuracy=mapPct(dtw.meanDist,0.06,0.5);
+      const tpl2stu=new Array(SCORE_N).fill(null);
+      dtw.path.forEach(([i,j])=>{ tpl2stu[i]= (tpl2stu[i]==null)? j : Math.max(tpl2stu[i],j); });
+      for(let i=0;i<SCORE_N;i++) if(tpl2stu[i]==null) tpl2stu[i]=i;
+      const stances=scoreDetectStances(tP);
+      const stanceRows=stances.map(i=>{ const j=tpl2stu[i]; const d=scoreFrameDist(tP[i],sP[j]);
+        return { score:mapPct(d,0.06,0.55), tTime:tF[i].t, sTime:sF[j].t }; });
+      const stanceAvg=stanceRows.length?clampPct(stanceRows.reduce((a,r)=>a+r.score,0)/stanceRows.length):accuracy;
+      const flow=computeFlowScore(stuFrames);
+      let warp=0; dtw.path.forEach(([i,j])=>warp+=Math.abs(i/(SCORE_N-1)-j/(SCORE_N-1))); warp/=dtw.path.length;
+      const warpScore=clampPct(100-warp*260);
+      const tempoRatio=(sF[SCORE_N-1].t||1)/(tF[SCORE_N-1].t||1);
+      const tempoScore=clampPct(100-Math.abs(Math.log(tempoRatio))*180);
+      const rhythm=clampPct(warpScore*0.6+tempoScore*0.4);
+      const re=stuSummary?.displacement?.returnError;
+      const ret=(re==null)?75:mapPct(re,0.12,0.6);
+      const stability=judgeStability(stuFrames);   // 站姿/重心穩定
+      const startend=judgeStartEnd(stuFrames);     // 起收式一致
+      const total=clampPct(accuracy*0.30+stanceAvg*0.25+flow*0.15+rhythm*0.15+ret*0.15);
+      return { total, dims:{ "動作準確度":accuracy,"定式到位":stanceAvg,"流暢度":flow,"節奏一致":rhythm,"回正(回原點)":ret }, stanceRows, stability, startend };
+    }
+    // 站姿/重心穩定（複用結構評分工具）
+    function judgeStability(frames){
+      if(frames.length<5) return 75;
+      const Href=median(frames.map(f=>sBodyH(f.lm)));
+      const hipYs=frames.map(f=>sHip(f.lm).y);
+      return clampPct(pctDown(std(hipYs)/Href, 0.012, 0.09));
+    }
+    // 起收式一致（首末方向 + 姿勢差）
+    function judgeStartEnd(frames){
+      if(frames.length<5) return 75;
+      const torsoMed=median(frames.map(f=>sTorso(f.lm)));
+      const headDiff=Math.abs(sShoulderDeg(frames[frames.length-1].lm)-sShoulderDeg(frames[0].lm));
+      const poseDiff=frameDistPacked(frames[0].lm, frames[frames.length-1].lm, torsoMed);
+      return clampPct(pctDown(headDiff,8,40)*0.5 + pctDown(poseDiff,0.06,0.5)*0.5);
+    }
+    // AI 信心指數：關節可見度 + 偵測完整度（多人入鏡靠拍攝檢查清單把關）
+    function computeConfidence(frames){
+      if(!frames.length) return {level:"低",pct:0,reasons:["無有效資料"]};
+      const KJ=[11,12,23,24,25,26,27,28]; let visSum=0,visN=0,full=0;
+      frames.forEach(f=>{ const lm=f.lm; if(!lm||lm.length<33) return; let ok=0;
+        KJ.forEach(i=>{ const v=(lm[i][3]==null)?1:lm[i][3]; visSum+=v; visN++; if(v>=0.5)ok++; });
+        if(ok===KJ.length) full++; });
+      const avgVis=visN?visSum/visN:0, completeness=frames.length?full/frames.length:0;
+      const pct=Math.round((avgVis*0.6+completeness*0.4)*100);
+      const reasons=[];
+      if(avgVis<0.6) reasons.push("關節可見度偏低");
+      if(completeness<0.7) reasons.push("部分影格關鍵點遺失");
+      if(frames.length<30) reasons.push("錄製影格偏少");
+      if(!shootingAllChecked()) reasons.push("拍攝檢查未全部確認");
+      return { level: pct>=80?"高":pct>=60?"中":"低", pct, reasons };
+    }
+
+    let lastJudge = null;   // 供家長 LINE 報告使用
+    function renderJudge(res, tpl){
+      judgeTotalEl.textContent=res.total;
+      const g = res.total>=90?"S（完美）":res.total>=80?"A（優秀）":res.total>=70?"B（良好）":res.total>=60?"C（普通）":"D（待加強）";
+      judgeGradeEl.textContent="· "+g;
+      const gc=res.total>=80?"var(--green)":res.total>=70?"var(--cyan)":res.total>=60?"var(--yellow)":"var(--red)";
+      judgeTotalEl.style.color=gc;
+      JUDGE_DIMS.forEach(n=>{ const v=clampPct(res.dims[n]);
+        document.getElementById("jm-"+n).textContent=v;
+        const bar=document.getElementById("jb-"+n); bar.style.width=v+"%";
+        bar.style.background = v>=80?"var(--green)":v>=65?"var(--cyan)":v>=50?"var(--yellow)":"var(--red)";
+      });
+      judgeCopy.textContent=`跟標準「${tpl.meta.name||"—"}」DTW 對齊後，偵測 ${res.stanceRows.length} 個定式。`;
+      judgeResultPill.className="pill "+(res.total>=80?"ok":res.total>=60?"warn":"bad");
+      judgeResultPill.textContent=`正確度 ${res.total} · ${g}`;
+
+      /* ---- AI 信心指數 ---- */
+      const conf=computeConfidence(judgeFrames);
+      document.getElementById("judgeConfBar").style.display="flex";
+      const cp=document.getElementById("judgeConf");
+      cp.className="pill "+(conf.level==="高"?"ok":conf.level==="中"?"warn":"bad");
+      cp.textContent=`${conf.level}（${conf.pct}%）`;
+      const lowConf = conf.level==="低";
+      document.getElementById("judgeShootWarn").style.display = (lowConf || !shootingAllChecked()) ? "inline-flex" : "none";
+
+      /* ---- 雙評分 ---- */
+      const acc=clampPct(res.dims["動作準確度"]), st=clampPct(res.dims["定式到位"]),
+            fl=clampPct(res.dims["流暢度"]), rh=clampPct(res.dims["節奏一致"]),
+            stb=clampPct(res.stability??75), ste=clampPct(res.startend??75);
+      const train={
+        "動作順序": Math.round(st/100*20),
+        "站姿穩定": Math.round(stb/100*20),
+        "手腳位置": Math.round(acc/100*20),
+        "重心控制": Math.round(stb/100*15),
+        "節奏流暢": Math.round((fl+rh)/2/100*15),
+        "起收式一致": Math.round(ste/100*10),
+      };
+      const trainMax={ "動作順序":20,"站姿穩定":20,"手腳位置":20,"重心控制":15,"節奏流暢":15,"起收式一致":10 };
+      const trainTotal=Object.values(train).reduce((a,b)=>a+b,0);
+      document.getElementById("judgeDual").style.display="grid";
+      document.getElementById("judgeTrain").innerHTML =
+        Object.keys(train).map(k=>`<div class="trow"><span>${k}</span><span class="tv">${train[k]} / ${trainMax[k]}</span></div>`).join("")
+        + `<div class="trow" style="margin-top:6px"><span style="font-weight:700">訓練總分</span><span class="judge-big">${trainTotal}</span></div>`;
+      const acc4=(acc*0.5+st*0.3+stb*0.2)/100*4;
+      const pres6=(fl*0.4+rh*0.4+ste*0.2)/100*6;
+      const ref10=acc4+pres6;
+      document.getElementById("judgeAcc").textContent=acc4.toFixed(1)+" / 4.0";
+      document.getElementById("judgePres").textContent=pres6.toFixed(1)+" / 6.0";
+      document.getElementById("judgeRef10").textContent=ref10.toFixed(1);
+
+      /* ---- AI 教練回饋（5 段，教練口吻） ---- */
+      const arr=Object.keys(train).map(k=>({k,v:train[k],max:trainMax[k],r:train[k]/trainMax[k]})).sort((a,b)=>a.r-b.r);
+      const weak=arr[0], strong=arr[arr.length-1];
+      const tipFix={
+        "動作順序":"招式順序/方向有跑掉，先慢慢對著標準走一遍演武線。",
+        "站姿穩定":"站姿重心會晃，弓步/後屈立要蹲穩、骨盆放平。",
+        "手腳位置":"手腳到位的位置和標準有差，定式時手要打到定點再停。",
+        "重心控制":"轉換步法時重心上下起伏，記得保持同樣高度移動。",
+        "節奏流暢":"動作節奏忽快忽慢，發力要乾脆、定式要停得住。",
+        "起收式一致":"收式沒回到起式的位置與方向，最後一步要踩回原點。"
+      };
+      const fb={
+        perf:`本次「${tpl.meta.name||"品勢"}」訓練總分 ${trainTotal} 分（${g}），裁判參考分約 ${ref10.toFixed(1)}/10。${lowConf?"（提醒：AI 信心偏低，分數僅供參考）":""}`,
+        pros:`做得好的是「${strong.k}」（${strong.v}/${strong.max}）— ${strong.r>=0.85?"已經很到位，繼續保持！":"是你的相對強項。"}`,
+        fix:`最需要修正的是「${weak.k}」（${weak.v}/${weak.max}）— ${tipFix[weak.k]||""}`,
+        goal:`下次目標：把「${weak.k}」練到 ${Math.min(weak.max,Math.ceil(weak.v+weak.max*0.2))} 分以上，總分朝 ${Math.min(100,trainTotal+8)} 分前進。`,
+        parent:`給家長的話：孩子這次表現${trainTotal>=80?"很棒":trainTotal>=60?"穩定成長中":"還在打基礎"}，請多鼓勵；AI 分析只是輔助，實際以教練指導為主。`
+      };
+      document.getElementById("judgeCoach").innerHTML=[
+        ["本次表現",fb.perf],["優點",fb.pros],["需要修正",fb.fix],["下次目標",fb.goal],["給家長的話",fb.parent]
+      ].map(([h,p])=>`<div class="blk"><h5>${h}</h5><p>${esc(p)}</p></div>`).join("");
+
+      /* ---- 逐定式明細 ---- */
+      if(!res.stanceRows.length){ judgeStancesEl.innerHTML=`<div class="empty">未偵測到定式。</div>`; }
+      else judgeStancesEl.innerHTML=`<div class="rec-list" style="padding:0">`+res.stanceRows.map((r,idx)=>{
+        const col=r.score>=80?"var(--green)":r.score>=65?"var(--yellow)":"var(--red)";
+        return `<div class="history-item"><div class="history-score" style="color:${col}">${r.score}</div>
+          <div class="history-meta">第 ${idx+1} 個定式<br>標準 ${(r.tTime/1000).toFixed(1)}s ↔ 你 ${(r.sTime/1000).toFixed(1)}s</div></div>`;
+      }).join("")+`</div>`;
+
+      /* ---- 家長 LINE 報告 ---- */
+      lastJudge={ tplName:tpl.meta.name||"品勢", trainTotal, conf, pros:fb.pros, fix:fb.fix, goal:fb.goal };
+      document.getElementById("judgeLineWrap").style.display="block";
+      document.getElementById("judgeLineBox").value=buildLineReport(lastJudge);
+    }
+
+    function buildLineReport(j){
+      const student=(document.getElementById("judgeStudent")?.value||"").trim()||"（請填寫）";
+      return [
+        "【雄麒跆拳道｜品勢 AI 訓練回報】",
+        "學生：" + student,
+        "品勢：" + j.tplName,
+        "本次 AI 訓練分：" + j.trainTotal + " / 100",
+        "AI 信心指數：" + j.conf.level + "（" + j.conf.pct + "%）",
+        "",
+        "優點：" + j.pros.replace(/^做得好的是/,"").trim(),
+        "需要加強：" + j.fix.replace(/^最需要修正的是/,"").trim(),
+        "下次目標：" + j.goal.replace(/^下次目標：/,"").trim(),
+        "",
+        "教練提醒：",
+        "AI 分析僅作為訓練輔助，實際修正仍以教練指導為主。"
+      ].join("\n");
+    }
+
+    judgeCamBtn.addEventListener("click", openCamera);
+    judgeStartBtn.addEventListener("click", startJudge);
+    judgeStopBtn.addEventListener("click", stopJudge);
+    judgeRefreshBtn.addEventListener("click", refreshJudgeSelects);
+    document.getElementById("tabBtnJudge").addEventListener("click", ()=>setTab("judge"));
+    document.getElementById("judgeLineBtn").addEventListener("click", ()=>{
+      const box=document.getElementById("judgeLineBox"); if(lastJudge) box.value=buildLineReport(lastJudge);
+      box.select();
+      navigator.clipboard?.writeText(box.value).then(()=>{ const b=document.getElementById("judgeLineBtn"); const o=b.textContent; b.textContent="✓ 已複製"; setTimeout(()=>b.textContent=o,1500); }).catch(()=>{ try{document.execCommand("copy");}catch(_){} });
+    });
+    initJudgeMetrics();
+
+    /* ---------- 綁定 & 初始化 ---------- */
+    cameraBtn.addEventListener("click", openCamera);
+    analyzeBtn.addEventListener("click", startAnalyze);
+    resetBtn.addEventListener("click", resetDemo);
+    exportBtn.addEventListener("click", exportResult);
+
+    /* ---------- 內建標準範本：首次載入自動匯入（可被使用者刪除，不會重生） ---------- */
+    function getBuiltinTemplates(){
+      try{
+        const el = document.getElementById("builtinTemplatesData");
+        if(!el) return [];
+        const txt = el.textContent.trim();
+        if(!txt || txt === "__BUILTIN_TEMPLATES__") return [];   // 尚未注入資料
+        return JSON.parse(txt);
+      }catch(e){ console.warn("內建範本解析失敗", e); return []; }
+    }
+    async function seedBuiltins(){
+      // (1) 內嵌小型內建（若有）
+      const list = getBuiltinTemplates();
+      for(const t of list){
+        const flag = "tkd_seeded_" + t.id;
+        if(localStorage.getItem(flag)) continue;   // 已種過 → 尊重使用者刪除，不重生
+        try{
+          const existing = await dbGetFull(t.id);
+          if(!existing){
+            const rec = JSON.parse(JSON.stringify(t));
+            if(!rec.summary) rec.summary = buildSummary(rec.frames);
+            await dbPut(rec);
+          }
+          localStorage.setItem(flag, "1");
+        }catch(e){ console.warn("內建範本匯入失敗", e); }
+      }
+      // (2) 外部大型內建範本集（11 支型）：首次載入抓一次，之後用旗標擋不重抓
+      if(!localStorage.getItem("tkd_builtin_ext_v1")){
+        try{
+          const res = await fetch("poomsae-builtin.json", { cache:"force-cache" });
+          if(res.ok){
+            const ext = await res.json();
+            for(const t of ext){
+              try{
+                if(!t || !t.id || !t.frames) continue;
+                const rec = JSON.parse(JSON.stringify(t));
+                if(!rec.summary) rec.summary = buildSummary(rec.frames);
+                await dbPut(rec);   // 覆蓋：確保 11 支都是影片版（含取代舊內建太極一章）
+              }catch(e){ console.warn("外部內建匯入失敗", t && t.id, e); }
+            }
+            localStorage.setItem("tkd_builtin_ext_v1", "1");
+          }
+        }catch(e){ console.warn("抓取外部內建範本失敗（file:// 不支援，請用 https/localhost）", e); }
+      }
+      if(currentTab === "compare") refreshCmpSelects();
+      if(currentTab === "poomsae") refreshPmList();
+      if(currentTab === "score") refreshScoreSelects();
+      if(currentTab === "struct") refreshStructSelect();
+      if(currentTab === "judge" && typeof refreshJudgeSelects==="function") refreshJudgeSelects();
+    }
+
+    /* ========== 拍攝檢查清單 ========== */
+    function shootingAllChecked(){
+      const ch=document.querySelectorAll(".shootchk");
+      return ch.length>0 && [...ch].every(c=>c.checked);
+    }
+    function updateShootUI(){
+      const ok=shootingAllChecked();
+      const pill=document.getElementById("shootPill");
+      pill.className="pill "+(ok?"ok":"warn");
+      pill.textContent= ok?"已確認":"未確認";
+      document.getElementById("shootNote").style.display = ok?"none":"block";
+    }
+    document.querySelectorAll(".shootchk").forEach(c=>c.addEventListener("change", updateShootUI));
+
+    /* ========== 三模式 ========== */
+    const MODE_TAB={ student:"judge", coach:"poomsae", parent:"judge" };
+    function setMode(m){
+      document.body.className="mode-"+m;
+      document.querySelectorAll("#modebar .modebtn").forEach(b=>b.classList.toggle("active", b.dataset.mode===m));
+      try{ localStorage.setItem("tkd_mode", m); }catch(_){}
+      if(MODE_TAB[m]) setTab(MODE_TAB[m]);
+      window.scrollTo({ top:0, behavior:"smooth" });
+    }
+    document.querySelectorAll("#modebar .modebtn").forEach(b=> b.addEventListener("click", ()=>setMode(b.dataset.mode)) );
+
+    initMetrics();
+    drawIdleSkeleton();
+    drawPoomsaeIdle();
+    renderHistory();
+    updateShootUI();
+    setMode(localStorage.getItem("tkd_mode") || "student");   // 預設學生模式（不再是橫踢）
+    seedBuiltins();
+  </script>
+</body>
+</html>
