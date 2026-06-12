@@ -2077,12 +2077,9 @@
             for(const t of ext){
               try{
                 if(!t || !t.id || !t.frames) continue;
-                const existing = await dbGetFull(t.id);
-                if(!existing){
-                  const rec = JSON.parse(JSON.stringify(t));
-                  if(!rec.summary) rec.summary = buildSummary(rec.frames);
-                  await dbPut(rec);
-                }
+                const rec = JSON.parse(JSON.stringify(t));
+                if(!rec.summary) rec.summary = buildSummary(rec.frames);
+                await dbPut(rec);   // 覆蓋：確保 11 支都是影片版（含取代舊內建太極一章）
               }catch(e){ console.warn("外部內建匯入失敗", t && t.id, e); }
             }
             localStorage.setItem("tkd_builtin_ext_v1", "1");
