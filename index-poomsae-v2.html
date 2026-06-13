@@ -10,7 +10,7 @@
   <meta property="og:title" content="品勢 AI 評分系統｜Taekwondo Poomsae AI" />
   <meta property="og:description" content="開相機即時評判太極品勢正確性：範本對照、自動評分、結構評分、即時評判。" />
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://shark7763-del.github.io/taekwondo-ai-coach/index-poomsae-v1.html" />
+  <meta property="og:url" content="https://shark7763-del.github.io/taekwondo-ai-coach/index-poomsae-v2.html" />
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="品勢 AI 評分系統｜Taekwondo Poomsae AI" />
   <meta name="twitter:description" content="開相機即時評判太極品勢正確性。" />
@@ -330,6 +330,13 @@
     select,input,.pm-form input,.pm-form select{ background:var(--card-2); border:1px solid rgba(0,229,255,.3); color:var(--cyan);
       border-radius:9px; font-family:"Rajdhani",sans-serif; }
     select:focus,input:focus{ outline:none; box-shadow:0 0 14px rgba(0,229,255,.4); }
+    button:focus-visible,
+    select:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible{
+      outline:3px solid var(--cyan);
+      outline-offset:3px;
+    }
     .pm-form label{ font-family:"Rajdhani",sans-serif; text-transform:uppercase; letter-spacing:.06em; }
 
     /* 攝影機 / 重播視窗 — HUD 邊框 */
@@ -411,6 +418,17 @@
     body.mode-coach  [data-only="student"], body.mode-coach  [data-only="parent"],
     body.mode-student [data-only="coach"], body.mode-student [data-only="parent"],
     body.mode-parent [data-only="coach"], body.mode-parent [data-only="student"]{ display:none !important; }
+
+    @media(max-width:560px){
+      .pm-form .row,.bd .row{ flex-direction:column; }
+      .controls{ grid-template-columns:1fr; }
+      .camera-box{ min-height:auto; aspect-ratio:4 / 3; }
+      canvas{ height:auto; aspect-ratio:4 / 3; }
+    }
+
+    @media(prefers-reduced-motion:reduce){
+      *{ animation:none!important; transition:none!important; scroll-behavior:auto!important; }
+    }
   </style>
 </head>
 
@@ -937,6 +955,7 @@
     let pose = null;
     let camera = null;
     let cameraOn = false;
+    let cameraStarting = false;
     let poseReady = false;
     let latestLandmarks = null;
 
@@ -1064,15 +1083,32 @@
     }
 
     /* ---------- 開啟攝影機 ---------- */
+    function syncCameraStatus(kind, text) {
+      setStatus(kind, text);
+      if (typeof setPmStatus === "function") setPmStatus(kind, text);
+      if (typeof setJudgeStatus === "function") setJudgeStatus(kind, text);
+    }
+    function setCameraButtonsBusy(busy) {
+      [cameraBtn, typeof pmCameraBtn !== "undefined" ? pmCameraBtn : null, typeof judgeCamBtn !== "undefined" ? judgeCamBtn : null]
+        .filter(Boolean).forEach(btn => { btn.disabled = busy || cameraOn; });
+    }
     async function openCamera() {
+      if (cameraOn) {
+        syncCameraStatus("ok", "攝影機已開啟");
+        if (typeof updatePmCameraUI === "function") updatePmCameraUI();
+        if (typeof updateJudgeCameraUI === "function") updateJudgeCameraUI();
+        return;
+      }
+      if (cameraStarting) return;
       if (typeof Pose === "undefined" || typeof Camera === "undefined") {
-        setStatus("warn", "AI 元件載入失敗（請檢查網路）");
+        syncCameraStatus("warn", "AI 元件載入失敗（請檢查網路）");
         alert("MediaPipe 載入失敗，請確認有連上網路後重新整理頁面。");
         return;
       }
       try {
-        setStatus("busy", "AI 模型載入中…");
-        cameraBtn.disabled = true;
+        cameraStarting = true;
+        syncCameraStatus("busy", "AI 模型載入中…");
+        setCameraButtonsBusy(true);
         if (!pose) setupPose();
 
         camera = new Camera(video, {
@@ -1103,16 +1139,18 @@
         poseReady = true;
         analyzeBtn.disabled = false;
         cameraBtn.textContent = "攝影機已開啟";
-        setStatus("ok", "攝影機運作中");
+        syncCameraStatus("ok", "攝影機運作中");
         cameraLabel.textContent = "Live Camera + AI 骨架";
         if (typeof updatePmCameraUI === "function") updatePmCameraUI();
         if (typeof updateJudgeCameraUI === "function") updateJudgeCameraUI();
       } catch (err) {
-        cameraBtn.disabled = false;
-        setStatus("warn", "無法開啟攝影機");
+        syncCameraStatus("warn", "無法開啟攝影機");
         cameraLabel.textContent = "請允許攝影機權限";
         alert("無法開啟攝影機，可能是瀏覽器權限未允許，或非 https/localhost 環境。");
         console.error(err);
+      } finally {
+        cameraStarting = false;
+        setCameraButtonsBusy(false);
       }
     }
 
@@ -1487,7 +1525,8 @@
         if (pmRecording) {
           const now = performance.now();
           if (now - pmLastSample >= 1000 / REC_FPS) {
-            pmFrames.push({ t: Math.round(now - pmStartT), lm: packLandmarks(lm) });
+            const q = frameQuality(lm);
+            if (q.ok) pmFrames.push({ t: Math.round(now - pmStartT), lm: packLandmarks(lm) });
             pmLastSample = now;
           }
         }
@@ -1502,25 +1541,38 @@
       return lm.map(p => [r3(p.x), r3(p.y), r3(p.z || 0), r2(p.visibility)]);
     }
 
+    const QUALITY_JOINTS = [11,12,13,14,15,16,23,24,25,26,27,28];
+    function frameQuality(lm) {
+      if (!lm || lm.length < 33) return { ok:false, score:0, reason:"無完整骨架" };
+      let visible = 0;
+      QUALITY_JOINTS.forEach(i => { if ((lm[i].visibility ?? 1) >= 0.5) visible++; });
+      const score = visible / QUALITY_JOINTS.length;
+      return { ok:score >= 0.75, score, reason:score >= 0.75 ? "" : "關鍵點可見度不足" };
+    }
+
+    function recAspect(rec) {
+      return Number(rec?.meta?.video?.aspect) || ASPECT || 640 / 480;
+    }
+
     /* ---------- 起手/結束特徵（packed lm 陣列） ---------- */
     function pHipCenter(lm) { return { x: r3((lm[23][0] + lm[24][0]) / 2), y: r3((lm[23][1] + lm[24][1]) / 2) }; }
-    function pTorso(lm) {
+    function pTorso(lm, aspect=ASPECT) {
       const sx=(lm[11][0]+lm[12][0])/2, sy=(lm[11][1]+lm[12][1])/2;
       const hx=(lm[23][0]+lm[24][0])/2, hy=(lm[23][1]+lm[24][1])/2;
-      return Math.hypot((sx-hx)*ASPECT, sy-hy);
+      return Math.hypot((sx-hx)*aspect, sy-hy);
     }
-    function pShoulderDeg(lm) {
-      return Math.atan2(lm[12][1]-lm[11][1], (lm[12][0]-lm[11][0])*ASPECT) * 180 / Math.PI;
+    function pShoulderDeg(lm, aspect=ASPECT) {
+      return Math.atan2(lm[12][1]-lm[11][1], (lm[12][0]-lm[11][0])*aspect) * 180 / Math.PI;
     }
-    function buildSummary(frames) {
+    function buildSummary(frames, aspect=ASPECT) {
       if (!frames.length) return null;
       const f0 = frames[0].lm, fN = frames[frames.length-1].lm;
       const hip0 = pHipCenter(f0), hipN = pHipCenter(fN);
-      const t0 = pTorso(f0), tN = pTorso(fN);
+      const t0 = pTorso(f0, aspect), tN = pTorso(fN, aspect);
       const tRef = Math.max(1e-3, (t0 + tN) / 2);
-      const dx = ((hipN.x - hip0.x) * ASPECT) / tRef;
+      const dx = ((hipN.x - hip0.x) * aspect) / tRef;
       const dy = (hipN.y - hip0.y) / tRef;
-      const sa0 = pShoulderDeg(f0), saN = pShoulderDeg(fN);
+      const sa0 = pShoulderDeg(f0, aspect), saN = pShoulderDeg(fN, aspect);
       return {
         start: { hipCenter: hip0, torsoLen: r3(t0), shoulderAngleDeg: r1(sa0), tStartMs: frames[0].t },
         end:   { hipCenter: hipN, torsoLen: r3(tN), shoulderAngleDeg: r1(saN), tEndMs: frames[frames.length-1].t },
@@ -1579,6 +1631,11 @@
       rec.meta.angle = document.getElementById("pmAngle")?.value || "front";
       rec.meta.category = document.getElementById("pmCategory")?.value || "coach";
       rec.meta.isTemplate = pmIsTemplate.checked;
+      if (rec.meta.isTemplate) {
+        const tplOk = canUseAsTemplate(rec);
+        if (!tplOk.ok) { alert("無法設為標準範本：" + tplOk.reason); return; }
+        rec.meta.qualityPct = tplOk.quality.pct;
+      }
       try { await dbPut(rec); } catch (e) { alert("儲存失敗：" + e); return; }
       pmForm.classList.add("hidden"); pmPendingRecord = null;
       setPmStatus("ok", "已儲存");
@@ -1641,6 +1698,57 @@
       });
     }
 
+    function validateRecord(rec) {
+      const errors = [];
+      if (!rec || typeof rec !== "object") errors.push("資料不是物件");
+      if (!rec?.meta || typeof rec.meta !== "object") errors.push("缺少 meta");
+      if (!Array.isArray(rec?.frames)) errors.push("缺少 frames 陣列");
+      if (errors.length) return { ok:false, errors };
+      if (rec.frames.length < 5) errors.push("影格數少於 5");
+      let prevT = -1;
+      rec.frames.forEach((f, idx) => {
+        if (!f || typeof f !== "object") { errors.push(`第 ${idx+1} 格格式錯誤`); return; }
+        if (!Number.isFinite(Number(f.t))) errors.push(`第 ${idx+1} 格時間不是數字`);
+        else if (Number(f.t) < prevT) errors.push(`第 ${idx+1} 格時間未遞增`);
+        else prevT = Number(f.t);
+        if (!Array.isArray(f.lm) || f.lm.length !== 33) { errors.push(`第 ${idx+1} 格不是 33 個關鍵點`); return; }
+        for (let j=0;j<f.lm.length;j++) {
+          const p = f.lm[j];
+          if (!Array.isArray(p) || p.length < 2 || !Number.isFinite(Number(p[0])) || !Number.isFinite(Number(p[1]))) {
+            errors.push(`第 ${idx+1} 格第 ${j} 點座標錯誤`);
+            break;
+          }
+        }
+      });
+      return { ok:errors.length === 0, errors };
+    }
+
+    function recordQuality(rec) {
+      const frames = rec?.frames || [];
+      let visible = 0, total = 0, full = 0;
+      frames.forEach(f => {
+        let ok = 0;
+        QUALITY_JOINTS.forEach(i => {
+          const v = f?.lm?.[i]?.[3] == null ? 1 : Number(f.lm[i][3]);
+          if (Number.isFinite(v)) { total++; visible += v; if (v >= 0.5) ok++; }
+        });
+        if (ok >= Math.ceil(QUALITY_JOINTS.length * 0.75)) full++;
+      });
+      const avgVis = total ? visible / total : 0;
+      const completeness = frames.length ? full / frames.length : 0;
+      const pct = Math.round((avgVis * 0.6 + completeness * 0.4) * 100);
+      return { pct, avgVis, completeness, frames:frames.length };
+    }
+
+    function canUseAsTemplate(rec) {
+      const valid = validateRecord(rec);
+      if (!valid.ok) return { ok:false, reason:"資料格式不完整：" + valid.errors.slice(0, 3).join("；") };
+      const q = recordQuality(rec);
+      if (q.frames < 10) return { ok:false, reason:"影格太少，建議重錄完整動作後再設為標準。" };
+      if (q.pct < 65) return { ok:false, reason:`骨架品質偏低（${q.pct}%），請確認全身入鏡、光線充足後重錄。` };
+      return { ok:true, quality:q };
+    }
+
     /* ---------- 清單 ---------- */
     async function refreshPmList() {
       let metas = [];
@@ -1654,12 +1762,14 @@
         const meta = m.meta, s = m.summary || {};
         const re = s.displacement ? s.displacement.returnError : "—";
         const hd = (s.headingDeltaDeg !== undefined) ? s.headingDeltaDeg + "°" : "—";
+        const q = meta.qualityPct != null ? `｜範本品質 ${meta.qualityPct}%` : "";
+        const rej = meta.templateRejectedReason ? `<br>範本狀態：${esc(meta.templateRejectedReason)}` : "";
         const dur = ((meta.durationMs || 0) / 1000).toFixed(1);
         const when = (meta.createdAt || "").slice(0, 16).replace("T", " ");
         return `<div class="rec-card" data-id="${m.id}">
           <h4>${esc(meta.name || "未命名")} ${meta.isTemplate ? '<span class="tpl-badge">標準範本</span>' : ""}</h4>
           <div class="meta">${PM_TYPE_LABEL[meta.poomsaeType] || esc(meta.poomsaeType)}｜${esc(meta.demonstrator || "—")}｜${when}<br>
-            時長 ${dur}s｜${meta.frameCount} 格｜回原點誤差 ${re}（軀幹長）｜方向差 ${hd}${meta.note ? "<br>備註：" + esc(meta.note) : ""}</div>
+            時長 ${dur}s｜${meta.frameCount} 格｜回原點誤差 ${re}（軀幹長）｜方向差 ${hd}${q}${rej}${meta.note ? "<br>備註：" + esc(meta.note) : ""}</div>
           <div class="rec-actions">
             <button class="btn-sm" data-act="play">重播</button>
             <button class="btn-sm" data-act="tpl">${meta.isTemplate ? "取消標準" : "設為標準"}</button>
@@ -1693,7 +1803,19 @@
       const act = btn.dataset.act;
       if (act === "play") { playRecord(id); }
       else if (act === "del") { if (confirm("確定刪除這筆錄製？")) { await dbDelete(id); if (pb.rec && pb.rec.id === id) closeReplay(); refreshPmList(); } }
-      else if (act === "tpl") { const rec = await dbGetFull(id); if (rec) { rec.meta.isTemplate = !rec.meta.isTemplate; await dbPut(rec); refreshPmList(); } }
+      else if (act === "tpl") {
+        const rec = await dbGetFull(id);
+        if (rec) {
+          if (!rec.meta.isTemplate) {
+            const tplOk = canUseAsTemplate(rec);
+            if (!tplOk.ok) { alert("無法設為標準範本：" + tplOk.reason); return; }
+            rec.meta.qualityPct = tplOk.quality.pct;
+          }
+          rec.meta.isTemplate = !rec.meta.isTemplate;
+          await dbPut(rec);
+          refreshPmList();
+        }
+      }
       else if (act === "rename") { const rec = await dbGetFull(id); if (rec) { const n = prompt("新名稱：", rec.meta.name || ""); if (n !== null) { rec.meta.name = n.trim() || rec.meta.name; await dbPut(rec); refreshPmList(); } } }
       else if (act === "export") { const rec = await dbGetFull(id); if (rec) downloadJSON(rec, (rec.meta.name || "poomsae") + ".json"); }
     });
@@ -1718,15 +1840,26 @@
       let data;
       try { data = JSON.parse(text); } catch (e) { alert("JSON 解析失敗。"); return; }
       const arr = Array.isArray(data) ? data : [data];
-      let ok = 0;
+      let ok = 0, bad = 0, badReasons = [];
       for (let i = 0; i < arr.length; i++) {
         const rec = arr[i];
-        if (!rec || !rec.frames || !rec.meta) continue;
+        const valid = validateRecord(rec);
+        if (!valid.ok) { bad++; badReasons.push(`第 ${i+1} 筆：${valid.errors[0]}`); continue; }
         rec.id = "rec_" + Date.now() + "_" + i;          // 重新配 id，避免覆蓋既有
-        if (!rec.summary) rec.summary = buildSummary(rec.frames);
+        rec.schemaVersion = rec.schemaVersion || 1;
+        rec.meta.frameCount = rec.frames.length;
+        rec.meta.durationMs = rec.meta.durationMs || rec.frames[rec.frames.length-1].t || 0;
+        rec.meta.createdAt = rec.meta.createdAt || new Date().toISOString();
+        rec.meta.video = rec.meta.video || { width:640, height:480, aspect:640/480 };
+        if (rec.meta.isTemplate) {
+          const tplOk = canUseAsTemplate(rec);
+          if (!tplOk.ok) { rec.meta.isTemplate = false; rec.meta.templateRejectedReason = tplOk.reason; }
+          else rec.meta.qualityPct = tplOk.quality.pct;
+        }
+        if (!rec.summary) rec.summary = buildSummary(rec.frames, recAspect(rec));
         try { await dbPut(rec); ok++; } catch (_) {}
       }
-      alert("匯入完成：" + ok + " 筆。");
+      alert("匯入完成：" + ok + " 筆。" + (bad ? "\n略過 " + bad + " 筆格式錯誤：\n" + badReasons.slice(0,3).join("\n") : ""));
       refreshPmList();
     }
 
@@ -2031,14 +2164,14 @@
       if(dist>=bad) return 40;
       return clampPct(100 - (dist-good)/(bad-good)*60);
     }
-    // packed lm → 正規化關節點(髖中心原點、軀幹長為單位、x 乘 ASPECT)
-    function scoreNormPoints(lm){
+    // packed lm → 正規化關節點(髖中心原點、軀幹長為單位、x 乘該錄製的 aspect)
+    function scoreNormPoints(lm, aspect=ASPECT){
       const hx=(lm[23][0]+lm[24][0])/2, hy=(lm[23][1]+lm[24][1])/2;
       const sx=(lm[11][0]+lm[12][0])/2, sy=(lm[11][1]+lm[12][1])/2;
-      const torso = Math.hypot((sx-hx)*ASPECT, sy-hy) || 1e-3;
+      const torso = Math.hypot((sx-hx)*aspect, sy-hy) || 1e-3;
       const out = {};
       KEY_JOINTS.forEach(i => { out[i] = {
-        x: ((lm[i][0]-hx)*ASPECT)/torso, y: (lm[i][1]-hy)/torso, v: (lm[i][3]==null?1:lm[i][3])
+        x: ((lm[i][0]-hx)*aspect)/torso, y: (lm[i][1]-hy)/torso, v: (lm[i][3]==null?1:lm[i][3])
       }; });
       return out;
     }
@@ -2047,10 +2180,33 @@
       KEY_JOINTS.forEach(i => { if((A[i].v??1)<0.3 || (B[i].v??1)<0.3) return; s += Math.hypot(A[i].x-B[i].x, A[i].y-B[i].y); n++; });
       return n ? s/n : 2;
     }
-    // 依時間均勻重採樣到 N 格（取最接近時間的那格）
+    function interpFrame(a, b, ratio){
+      return {
+        t: a.t + (b.t - a.t) * ratio,
+        lm: a.lm.map((p, i) => {
+          const q = b.lm[i] || p;
+          const pz = p[2] == null ? 0 : p[2], qz = q[2] == null ? pz : q[2];
+          const pv = p[3] == null ? 1 : p[3], qv = q[3] == null ? pv : q[3];
+          return [
+            p[0] + (q[0] - p[0]) * ratio,
+            p[1] + (q[1] - p[1]) * ratio,
+            pz + (qz - pz) * ratio,
+            pv + (qv - pv) * ratio
+          ];
+        })
+      };
+    }
+    // 依時間均勻重採樣到 N 格（線性插值，降低低 FPS 階梯誤差）
     function scoreResample(frames, N){
       const dur = frames[frames.length-1].t || 1, out=[];
-      for(let k=0;k<N;k++){ const tt = dur*k/(N-1); let i=0; while(i<frames.length-1 && frames[i+1].t<=tt) i++; out.push(frames[i]); }
+      for(let k=0;k<N;k++){
+        const tt = dur*k/(N-1);
+        let i=0;
+        while(i<frames.length-2 && frames[i+1].t<tt) i++;
+        const a=frames[i], b=frames[Math.min(i+1, frames.length-1)];
+        const span=Math.max(1, b.t-a.t);
+        out.push(interpFrame(a, b, Math.max(0, Math.min(1, (tt-a.t)/span))));
+      }
       return out;
     }
     // DTW（Sakoe-Chiba band），回傳 {dist, path, meanDist, band}
@@ -2080,14 +2236,13 @@
       let raw=[];
       for(let i=2;i<vel.length-2;i++){ if(vel[i]<thr && vel[i]<=vel[i-1] && vel[i]<=vel[i+1]) raw.push(i); }
       const merged=[]; raw.forEach(i=>{ if(!merged.length || i-merged[merged.length-1]>win) merged.push(i); });
-      if(merged.length===0){ for(let k=1;k<=6;k++) merged.push(Math.round(P.length*k/7)); } // 找不到 → 平均取點
-      return merged.slice(0, 14);
+      return { indices:merged.slice(0, 14), confidence:merged.length ? "ok" : "low" };
     }
     // 流暢度 Flow（無因次 jerk 代理；複用結構評分的速度/平滑工具）
-    function computeFlowScore(frames){
+    function computeFlowScore(frames, aspect=ASPECT){
       if(frames.length<6) return 70;
-      const torsoMed = median(frames.map(f=>sTorso(f.lm)));
-      let sp=[]; for(let i=1;i<frames.length;i++){ const dt=Math.max(1,(frames[i].t-frames[i-1].t))/1000; sp.push(sSpeed(frames[i-1].lm,frames[i].lm,dt,torsoMed)); }
+      const torsoMed = median(frames.map(f=>sTorso(f.lm, aspect)));
+      let sp=[]; for(let i=1;i<frames.length;i++){ const dt=Math.max(1,(frames[i].t-frames[i-1].t))/1000; sp.push(sSpeed(frames[i-1].lm,frames[i].lm,dt,torsoMed,aspect)); }
       sp=smooth(sp,3);
       const acc=[]; for(let i=1;i<sp.length;i++) acc.push(sp[i]-sp[i-1]);
       const jk=[]; for(let i=1;i<acc.length;i++) jk.push(Math.abs(acc[i]-acc[i-1]));
@@ -2121,8 +2276,9 @@
         const tpl = await dbGetFull(tid), stu = await dbGetFull(sid);
         if(!tpl?.frames?.length || !stu?.frames?.length){ alert("有一筆缺少骨架資料。"); return; }
 
+        const tplAspect = recAspect(tpl), stuAspect = recAspect(stu);
         const tF = scoreResample(tpl.frames, SCORE_N), sF = scoreResample(stu.frames, SCORE_N);
-        const tP = tF.map(f=>scoreNormPoints(f.lm)), sP = sF.map(f=>scoreNormPoints(f.lm));
+        const tP = tF.map(f=>scoreNormPoints(f.lm, tplAspect)), sP = sF.map(f=>scoreNormPoints(f.lm, stuAspect));
         const dtw = scoreDTW(tP, sP, 0.1);   // Sakoe-Chiba band 10%
 
         // 1) 動作準確度
@@ -2132,7 +2288,8 @@
         const tpl2stu = new Array(SCORE_N).fill(null);
         dtw.path.forEach(([i,j])=>{ if(tpl2stu[i]==null) tpl2stu[i]=j; else tpl2stu[i]=Math.max(tpl2stu[i], j); });
         for(let i=0;i<SCORE_N;i++){ if(tpl2stu[i]==null) tpl2stu[i] = i; }
-        const stances = scoreDetectStances(tP);
+        const stanceDetection = scoreDetectStances(tP);
+        const stances = stanceDetection.indices;
         const stanceRows = stances.map(i=>{
           const j = tpl2stu[i];
           const d = scoreFrameDist(tP[i], sP[j]);
@@ -2141,7 +2298,7 @@
         const stanceAvg = stanceRows.length ? clampPct(stanceRows.reduce((a,r)=>a+r.score,0)/stanceRows.length) : accuracy;
 
         // 3) 流暢度 Flow（學員整段動作的 jerk 平滑度）
-        const flow = computeFlowScore(stu.frames);
+        const flow = computeFlowScore(stu.frames, stuAspect);
 
         // 4) 節奏一致（DTW 路徑彎曲 + TempoRatio 時長比）
         let warp=0; dtw.path.forEach(([i,j])=>{ warp += Math.abs(i/(SCORE_N-1) - j/(SCORE_N-1)); });
@@ -2157,13 +2314,13 @@
 
         // 加權（貼近藍圖四大分數精神）：準確0.30 定式0.25 流暢0.15 節奏0.15 回正0.15
         const total = clampPct(accuracy*0.30 + stanceAvg*0.25 + flow*0.15 + rhythm*0.15 + ret*0.15);
-        renderScore(total, { "動作準確度":accuracy, "定式到位":stanceAvg, "流暢度":flow, "節奏一致":rhythm, "回正(回原點)":ret }, stanceRows, tpl, stu);
+        renderScore(total, { "動作準確度":accuracy, "定式到位":stanceAvg, "流暢度":flow, "節奏一致":rhythm, "回正(回原點)":ret }, stanceRows, tpl, stu, stanceDetection);
         scoreStatus.textContent = "評分完成";
       }catch(e){ console.error(e); alert("評分失敗：" + e); scoreStatus.textContent = "評分失敗"; }
       finally{ scoreRunBtn.disabled = false; }
     }
 
-    function renderScore(total, dims, stanceRows, tpl, stu){
+    function renderScore(total, dims, stanceRows, tpl, stu, stanceDetection){
       scoreTotalEl.textContent = total;
       SCORE_DIMS.forEach(name=>{
         const v = clampPct(dims[name]);
@@ -2184,6 +2341,7 @@
       if(total>=85) fb.push("整體完成度高，接近標準範本。");
       else if(total>=70) fb.push("動作大致正確，再修細節即可。");
       else fb.push("與標準仍有差距，建議分段慢練。");
+      if(stanceDetection?.confidence === "low") fb.push("未偵測到明確定式，本次定式到位分數信心偏低；請確認定式有停住、鏡頭固定且全身入鏡。");
       fb.push(`最需加強：${sorted[0].n}（${sorted[0].v} 分）— ${tips[sorted[0].n]}`);
       if(sorted[1].v<75) fb.push(`其次：${sorted[1].n}（${sorted[1].v} 分）— ${tips[sorted[1].n]}`);
       const weak = stanceRows.filter(r=>r.score<70).slice(0,3);
@@ -2226,14 +2384,14 @@
     const structFeedback = document.getElementById("structFeedback");
 
     // 結構分用幾何（packed lm 陣列；x 乘 ASPECT 校正）
-    function sHip(lm){ return { x:((lm[23][0]+lm[24][0])/2)*ASPECT, y:(lm[23][1]+lm[24][1])/2 }; }
-    function sFeet(lm){ return { x:((lm[27][0]+lm[28][0])/2)*ASPECT, y:(lm[27][1]+lm[28][1])/2 }; }
-    function sTorso(lm){ const sx=(lm[11][0]+lm[12][0])/2*ASPECT, sy=(lm[11][1]+lm[12][1])/2,
-      hx=(lm[23][0]+lm[24][0])/2*ASPECT, hy=(lm[23][1]+lm[24][1])/2; return Math.hypot(sx-hx,sy-hy)||1e-3; }
+    function sHip(lm, aspect=ASPECT){ return { x:((lm[23][0]+lm[24][0])/2)*aspect, y:(lm[23][1]+lm[24][1])/2 }; }
+    function sFeet(lm, aspect=ASPECT){ return { x:((lm[27][0]+lm[28][0])/2)*aspect, y:(lm[27][1]+lm[28][1])/2 }; }
+    function sTorso(lm, aspect=ASPECT){ const sx=(lm[11][0]+lm[12][0])/2*aspect, sy=(lm[11][1]+lm[12][1])/2,
+      hx=(lm[23][0]+lm[24][0])/2*aspect, hy=(lm[23][1]+lm[24][1])/2; return Math.hypot(sx-hx,sy-hy)||1e-3; }
     function sBodyH(lm){ const ankY=Math.max(lm[27][1],lm[28][1]); const headY=lm[0][1]; return Math.max(1e-3, ankY-headY); }
-    function sShoulderDeg(lm){ return Math.atan2(lm[12][1]-lm[11][1],(lm[12][0]-lm[11][0])*ASPECT)*180/Math.PI; }
+    function sShoulderDeg(lm, aspect=ASPECT){ return Math.atan2(lm[12][1]-lm[11][1],(lm[12][0]-lm[11][0])*aspect)*180/Math.PI; }
     // 兩格之間「整體速度」= 評估關節平均位移 / dt（以軀幹長正規化）
-    function sSpeed(a,b,dt,torso){ let s=0,n=0; SJ.forEach(i=>{ const dx=(b[i][0]-a[i][0])*ASPECT, dy=b[i][1]-a[i][1]; s+=Math.hypot(dx,dy); n++; }); return (s/n)/torso/dt; }
+    function sSpeed(a,b,dt,torso,aspect=ASPECT){ let s=0,n=0; SJ.forEach(i=>{ const dx=(b[i][0]-a[i][0])*aspect, dy=b[i][1]-a[i][1]; s+=Math.hypot(dx,dy); n++; }); return (s/n)/torso/dt; }
     function smooth(arr,w){ // 簡易移動平均（代替 Savitzky-Golay）
       const out=arr.slice(); const h=Math.floor(w/2);
       for(let i=0;i<arr.length;i++){ let s=0,c=0; for(let j=-h;j<=h;j++){ const k=i+j; if(k>=0&&k<arr.length){s+=arr[k];c++;} } out[i]=s/c; }
@@ -2242,20 +2400,20 @@
     function pctDown(v,good,bad){ if(v<=good)return 100; if(v>=bad)return 40; return Math.round(100-(v-good)/(bad-good)*60); }
     function structGrade(t){ return t>=90?"S（卓越）":t>=80?"A（優秀）":t>=70?"B（良好）":t>=60?"C（普通）":"D（待加強）"; }
 
-    function computeStructMetrics(frames){
+    function computeStructMetrics(frames, aspect=ASPECT){
       if(frames.length<8) return null;
-      const torsoMed = median(frames.map(f=>sTorso(f.lm)));
+      const torsoMed = median(frames.map(f=>sTorso(f.lm, aspect)));
       const Href = median(frames.map(f=>sBodyH(f.lm)));
 
       // 1) 重心垂直穩定：σ(髖 y)/身高（越小越穩）
-      const hipYs = frames.map(f=>sHip(f.lm).y);
+      const hipYs = frames.map(f=>sHip(f.lm, aspect).y);
       const balStd = std(hipYs)/Href;
       const balance = pctDown(balStd, 0.012, 0.09);
 
       // 速度序列（平滑後）
       let speeds=[];
       for(let i=1;i<frames.length;i++){ const dt=Math.max(1,(frames[i].t-frames[i-1].t))/1000;
-        speeds.push(sSpeed(frames[i-1].lm, frames[i].lm, dt, torsoMed)); }
+        speeds.push(sSpeed(frames[i-1].lm, frames[i].lm, dt, torsoMed, aspect)); }
       speeds = smooth(speeds,3);
 
       // 2) 動作流暢度：jerk 代理（速度的二階差分大小）+ 速度峰數
@@ -2265,7 +2423,7 @@
       const flow = pctDown(meanJerk, 0.6, 4.5);
 
       // 3) 演武線閉合：起手 vs 結束 雙腳中點位移 / 身高
-      const feet0=sFeet(frames[0].lm), feetN=sFeet(frames[frames.length-1].lm);
+      const feet0=sFeet(frames[0].lm, aspect), feetN=sFeet(frames[frames.length-1].lm, aspect);
       const closeErr = Math.hypot(feetN.x-feet0.x, feetN.y-feet0.y)/Href;
       const closure = pctDown(closeErr, 0.08, 0.5);
 
@@ -2282,8 +2440,8 @@
       const rhythm = Math.round(ratioScore*0.5 + segScore*0.5);
 
       // 5) 起收式一致：方向差 + 首末姿勢距離
-      const headDiff = Math.abs(sShoulderDeg(frames[frames.length-1].lm)-sShoulderDeg(frames[0].lm));
-      const poseDiff = frameDistPacked(frames[0].lm, frames[frames.length-1].lm, torsoMed);
+      const headDiff = Math.abs(sShoulderDeg(frames[frames.length-1].lm, aspect)-sShoulderDeg(frames[0].lm, aspect));
+      const poseDiff = frameDistPacked(frames[0].lm, frames[frames.length-1].lm, torsoMed, aspect);
       const startend = Math.round(pctDown(headDiff,8,40)*0.5 + pctDown(poseDiff,0.06,0.5)*0.5);
 
       const dims = {"重心穩定":balance,"動作流暢度":flow,"演武線閉合":closure,"動靜節奏":rhythm,"起收式一致":startend};
@@ -2291,10 +2449,10 @@
       return { dims, total, info:{ balStd:balStd.toFixed(3), closeErr:closeErr.toFixed(3), pauseSegs, movRatio:movRatio.toFixed(2), frames:frames.length } };
     }
     // 首末姿勢距離（髖中心對齊、軀幹長正規化）
-    function frameDistPacked(a,b,torso){
-      const ha=sHip(a), hb=sHip(b); let s=0,n=0;
-      SJ.forEach(i=>{ const ax=(a[i][0]*ASPECT-ha.x)/torso, ay=(a[i][1]-ha.y)/torso,
-        bx=(b[i][0]*ASPECT-hb.x)/torso, by=(b[i][1]-hb.y)/torso; s+=Math.hypot(ax-bx,ay-by); n++; });
+    function frameDistPacked(a,b,torso,aspect=ASPECT){
+      const ha=sHip(a, aspect), hb=sHip(b, aspect); let s=0,n=0;
+      SJ.forEach(i=>{ const ax=(a[i][0]*aspect-ha.x)/torso, ay=(a[i][1]-ha.y)/torso,
+        bx=(b[i][0]*aspect-hb.x)/torso, by=(b[i][1]-hb.y)/torso; s+=Math.hypot(ax-bx,ay-by); n++; });
       return n? s/n : 1;
     }
     function median(arr){ const a=arr.slice().sort((x,y)=>x-y); const m=a.length>>1; return a.length? (a.length%2?a[m]:(a[m-1]+a[m])/2):0; }
@@ -2318,7 +2476,7 @@
       try{
         const rec=await dbGetFull(id);
         if(!rec?.frames?.length){ alert("此錄製沒有骨架資料。"); return; }
-        const r=computeStructMetrics(rec.frames);
+        const r=computeStructMetrics(rec.frames, recAspect(rec));
         if(!r){ alert("影格太少，無法評分。"); return; }
         structTotalEl.textContent=r.total;
         const g=structGrade(r.total);
@@ -2404,7 +2562,8 @@
         if(judging){
           const now=performance.now();
           if(now-judgeLastSample >= 1000/REC_FPS){
-            judgeFrames.push({ t:Math.round(now-judgeStartT), lm: packLandmarks(lm) });
+            const q = frameQuality(lm);
+            if(q.ok) judgeFrames.push({ t:Math.round(now-judgeStartT), lm: packLandmarks(lm) });
             judgeLastSample = now;
           }
         }
@@ -2450,7 +2609,7 @@
         const tpl = await dbGetFull(judgeTplSel.value);
         if(!tpl?.frames?.length){ alert("標準型沒有骨架資料。"); return; }
         const summary = buildSummary(judgeFrames);
-        const res = computeMatchScore(tpl.frames, judgeFrames, summary);
+        const res = computeMatchScore(tpl.frames, judgeFrames, summary, recAspect(tpl), ASPECT);
         if(!res){ alert("資料不足，無法評分。"); return; }
         renderJudge(res, tpl);
         setJudgeStatus("ok","評判完成");
@@ -2461,19 +2620,19 @@
     // 用於特徵的關節：肘×2、肩×2、膝×2、髖×2（[a,b,c] 取 b 點夾角）
     const FEAT_JOINTS = [[11,13,15],[12,14,16],[13,11,23],[14,12,24],[23,25,27],[24,26,28],[11,23,25],[12,24,26]];
     // packed lm 的三點夾角（弧度），x 乘 ASPECT 校正
-    function jAngRad(lm,a,b,c){
-      const ax=(lm[a][0]-lm[b][0])*ASPECT, ay=lm[a][1]-lm[b][1];
-      const cx=(lm[c][0]-lm[b][0])*ASPECT, cy=lm[c][1]-lm[b][1];
+    function jAngRad(lm,a,b,c,aspect=ASPECT){
+      const ax=(lm[a][0]-lm[b][0])*aspect, ay=lm[a][1]-lm[b][1];
+      const cx=(lm[c][0]-lm[b][0])*aspect, cy=lm[c][1]-lm[b][1];
       const dot=ax*cx+ay*cy, m=Math.hypot(ax,ay)*Math.hypot(cx,cy)||1e-6;
       return Math.acos(Math.max(-1,Math.min(1,dot/m)));
     }
     // 一格 → 角度特徵向量：每個關節角 θ 轉成 (cosθ, sinθ)，再加軀幹傾角。
     // 純角度 → 與身高/位置/尺度無關（normalized skeleton），且適合餘弦相似度。
-    function poseFeat(lm){
+    function poseFeat(lm, aspect=ASPECT){
       const f=[];
-      FEAT_JOINTS.forEach(([a,b,c])=>{ const r=jAngRad(lm,a,b,c); f.push(Math.cos(r),Math.sin(r)); });
-      const sx=(lm[11][0]+lm[12][0])/2*ASPECT, sy=(lm[11][1]+lm[12][1])/2;
-      const hx=(lm[23][0]+lm[24][0])/2*ASPECT, hy=(lm[23][1]+lm[24][1])/2;
+      FEAT_JOINTS.forEach(([a,b,c])=>{ const r=jAngRad(lm,a,b,c,aspect); f.push(Math.cos(r),Math.sin(r)); });
+      const sx=(lm[11][0]+lm[12][0])/2*aspect, sy=(lm[11][1]+lm[12][1])/2;
+      const hx=(lm[23][0]+lm[24][0])/2*aspect, hy=(lm[23][1]+lm[24][1])/2;
       const tr=Math.atan2(sx-hx, -(sy-hy)); f.push(Math.cos(tr),Math.sin(tr));
       return f;
     }
@@ -2506,22 +2665,23 @@
     }
 
     // 學員 frames vs 標準 frames → 正確度（角度+餘弦+DTW+階段，不用絕對座標）
-    function computeMatchScore(tplFrames, stuFrames, stuSummary){
+    function computeMatchScore(tplFrames, stuFrames, stuSummary, tplAspect=ASPECT, stuAspect=ASPECT){
       if(!tplFrames.length || stuFrames.length<10) return null;
       const tF=scoreResample(tplFrames,SCORE_N), sF=scoreResample(stuFrames,SCORE_N);
-      const tP=tF.map(f=>scoreNormPoints(f.lm)), sP=sF.map(f=>scoreNormPoints(f.lm));
-      const tFeat=tF.map(f=>poseFeat(f.lm)), sFeat=sF.map(f=>poseFeat(f.lm));
+      const tP=tF.map(f=>scoreNormPoints(f.lm, tplAspect)), sP=sF.map(f=>scoreNormPoints(f.lm, stuAspect));
+      const tFeat=tF.map(f=>poseFeat(f.lm, tplAspect)), sFeat=sF.map(f=>poseFeat(f.lm, stuAspect));
       const dtw=dtwFeat(tFeat,sFeat,0.12);                 // ★ 角度餘弦 DTW 對齊
       const accuracy=mapPct(dtw.meanDist,0.05,0.45);       // 餘弦距離越小越準
       const tpl2stu=new Array(SCORE_N).fill(null);
       dtw.path.forEach(([i,j])=>{ tpl2stu[i]= (tpl2stu[i]==null)? j : Math.max(tpl2stu[i],j); });
       for(let i=0;i<SCORE_N;i++) if(tpl2stu[i]==null) tpl2stu[i]=i;
       const phases=phaseScores(tFeat, sFeat, dtw.path);    // ★ 五階段分段評分
-      const stances=scoreDetectStances(tP);
+      const stanceDetection=scoreDetectStances(tP);
+      const stances=stanceDetection.indices;
       const stanceRows=stances.map(i=>{ const j=tpl2stu[i]; const d=1-cosSim(tFeat[i],sFeat[j]);
         return { score:clampPct(mapPct(d,0.05,0.5)), tTime:tF[i].t, sTime:sF[j].t }; });
       const stanceAvg=stanceRows.length?clampPct(stanceRows.reduce((a,r)=>a+r.score,0)/stanceRows.length):accuracy;
-      const flow=computeFlowScore(stuFrames);
+      const flow=computeFlowScore(stuFrames, stuAspect);
       let warp=0; dtw.path.forEach(([i,j])=>warp+=Math.abs(i/(SCORE_N-1)-j/(SCORE_N-1))); warp/=dtw.path.length;
       const warpScore=clampPct(100-warp*260);
       const tempoRatio=(sF[SCORE_N-1].t||1)/(tF[SCORE_N-1].t||1);
@@ -2529,26 +2689,26 @@
       const rhythm=clampPct(warpScore*0.6+tempoScore*0.4);
       const re=stuSummary?.displacement?.returnError;
       const ret=(re==null)?75:mapPct(re,0.12,0.6);
-      const stability=judgeStability(stuFrames);   // 站姿/重心穩定
-      const startend=judgeStartEnd(stuFrames);     // 起收式一致
+      const stability=judgeStability(stuFrames, stuAspect);   // 站姿/重心穩定
+      const startend=judgeStartEnd(stuFrames, stuAspect);     // 起收式一致
       // 階段平均也納入總分（強化「比階段不比同幀」）
       const phaseAvg = phases.length ? clampPct(phases.reduce((a,p)=>a+p.score,0)/phases.length) : accuracy;
       const total=clampPct(accuracy*0.25+phaseAvg*0.20+stanceAvg*0.20+flow*0.15+rhythm*0.10+ret*0.10);
-      return { total, dims:{ "動作準確度":accuracy,"定式到位":stanceAvg,"流暢度":flow,"節奏一致":rhythm,"回正(回原點)":ret }, stanceRows, stability, startend, phases, phaseAvg };
+      return { total, dims:{ "動作準確度":accuracy,"定式到位":stanceAvg,"流暢度":flow,"節奏一致":rhythm,"回正(回原點)":ret }, stanceRows, stability, startend, phases, phaseAvg, stanceConfidence:stanceDetection.confidence };
     }
     // 站姿/重心穩定（複用結構評分工具）
-    function judgeStability(frames){
+    function judgeStability(frames, aspect=ASPECT){
       if(frames.length<5) return 75;
       const Href=median(frames.map(f=>sBodyH(f.lm)));
-      const hipYs=frames.map(f=>sHip(f.lm).y);
+      const hipYs=frames.map(f=>sHip(f.lm, aspect).y);
       return clampPct(pctDown(std(hipYs)/Href, 0.012, 0.09));
     }
     // 起收式一致（首末方向 + 姿勢差）
-    function judgeStartEnd(frames){
+    function judgeStartEnd(frames, aspect=ASPECT){
       if(frames.length<5) return 75;
-      const torsoMed=median(frames.map(f=>sTorso(f.lm)));
-      const headDiff=Math.abs(sShoulderDeg(frames[frames.length-1].lm)-sShoulderDeg(frames[0].lm));
-      const poseDiff=frameDistPacked(frames[0].lm, frames[frames.length-1].lm, torsoMed);
+      const torsoMed=median(frames.map(f=>sTorso(f.lm, aspect)));
+      const headDiff=Math.abs(sShoulderDeg(frames[frames.length-1].lm, aspect)-sShoulderDeg(frames[0].lm, aspect));
+      const poseDiff=frameDistPacked(frames[0].lm, frames[frames.length-1].lm, torsoMed, aspect);
       return clampPct(pctDown(headDiff,8,40)*0.5 + pctDown(poseDiff,0.06,0.5)*0.5);
     }
     // AI 信心指數：關節可見度 + 偵測完整度（多人入鏡靠拍攝檢查清單把關）
@@ -2636,6 +2796,7 @@
         goal:`下次目標：把「${weak.k}」練到 ${Math.min(weak.max,Math.ceil(weak.v+weak.max*0.2))} 分以上，總分朝 ${Math.min(100,trainTotal+8)} 分前進。`,
         parent:`給家長的話：孩子這次表現${trainTotal>=80?"很棒":trainTotal>=60?"穩定成長中":"還在打基礎"}，請多鼓勵；AI 分析只是輔助，實際以教練指導為主。`
       };
+      if(res.stanceConfidence === "low") fb.fix += " 本次未偵測到明確定式，定式到位分數信心偏低，請放慢並在每個定式停住。";
       document.getElementById("judgeCoach").innerHTML=[
         ["本次表現",fb.perf],["優點",fb.pros],["需要修正",fb.fix],["下次目標",fb.goal],["給家長的話",fb.parent]
       ].map(([h,p])=>`<div class="blk"><h5>${h}</h5><p>${esc(p)}</p></div>`).join("");
