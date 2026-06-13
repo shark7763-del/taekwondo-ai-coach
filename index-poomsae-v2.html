@@ -868,7 +868,7 @@
           </div>
 
           <div class="feedback" style="border-top:1px solid rgba(0,229,255,.15)">
-            <h3>逐定式明細</h3>
+            <h3>動作階段評分 &amp; 逐定式明細</h3>
             <div id="judgeStances"><div class="empty">尚未評判。</div></div>
           </div>
         </section>
@@ -2457,19 +2457,69 @@
       }catch(e){ console.error(e); alert("評分失敗："+e); setJudgeStatus("bad","評分失敗"); }
     }
 
-    // 學員 frames vs 標準 frames → 正確度（複用自動評分的演算法）
+    /* ===== 關節角度特徵 + 餘弦相似度 + DTW + 階段分段（不使用絕對座標） ===== */
+    // 用於特徵的關節：肘×2、肩×2、膝×2、髖×2（[a,b,c] 取 b 點夾角）
+    const FEAT_JOINTS = [[11,13,15],[12,14,16],[13,11,23],[14,12,24],[23,25,27],[24,26,28],[11,23,25],[12,24,26]];
+    // packed lm 的三點夾角（弧度），x 乘 ASPECT 校正
+    function jAngRad(lm,a,b,c){
+      const ax=(lm[a][0]-lm[b][0])*ASPECT, ay=lm[a][1]-lm[b][1];
+      const cx=(lm[c][0]-lm[b][0])*ASPECT, cy=lm[c][1]-lm[b][1];
+      const dot=ax*cx+ay*cy, m=Math.hypot(ax,ay)*Math.hypot(cx,cy)||1e-6;
+      return Math.acos(Math.max(-1,Math.min(1,dot/m)));
+    }
+    // 一格 → 角度特徵向量：每個關節角 θ 轉成 (cosθ, sinθ)，再加軀幹傾角。
+    // 純角度 → 與身高/位置/尺度無關（normalized skeleton），且適合餘弦相似度。
+    function poseFeat(lm){
+      const f=[];
+      FEAT_JOINTS.forEach(([a,b,c])=>{ const r=jAngRad(lm,a,b,c); f.push(Math.cos(r),Math.sin(r)); });
+      const sx=(lm[11][0]+lm[12][0])/2*ASPECT, sy=(lm[11][1]+lm[12][1])/2;
+      const hx=(lm[23][0]+lm[24][0])/2*ASPECT, hy=(lm[23][1]+lm[24][1])/2;
+      const tr=Math.atan2(sx-hx, -(sy-hy)); f.push(Math.cos(tr),Math.sin(tr));
+      return f;
+    }
+    function cosSim(a,b){ let d=0,na=0,nb=0; for(let i=0;i<a.length;i++){ d+=a[i]*b[i]; na+=a[i]*a[i]; nb+=b[i]*b[i]; } return d/(Math.sqrt(na*nb)||1e-9); }
+    function featDist(a,b){ return 1 - cosSim(a,b); }   // 0=完全相同
+    // DTW（Sakoe-Chiba band）以「角度餘弦距離」為成本，讓快慢不同也能對齊
+    function dtwFeat(A,B,bandRatio){
+      const n=A.length,m=B.length,INF=1e12;
+      const band=Math.max(Math.abs(n-m)+1, Math.round((bandRatio||0.12)*Math.max(n,m)));
+      const D=Array.from({length:n+1},()=>new Float64Array(m+1).fill(INF)); D[0][0]=0;
+      for(let i=1;i<=n;i++){ const lo=Math.max(1,i-band),hi=Math.min(m,i+band);
+        for(let j=lo;j<=hi;j++){ const c=featDist(A[i-1],B[j-1]); D[i][j]=c+Math.min(D[i-1][j],D[i][j-1],D[i-1][j-1]); } }
+      let i=n,j=m,path=[]; while(i>0&&j>0){ path.push([i-1,j-1]); const a=D[i-1][j],b=D[i][j-1],c=D[i-1][j-1];
+        if(c<=a&&c<=b){i--;j--;} else if(a<=b){i--;} else {j--;} } path.reverse();
+      return { dist:D[n][m], path, meanDist:D[n][m]/Math.max(1,path.length) };
+    }
+    // 五個動作階段：依 DTW 對映，比較「對齊後的對應幀」而非同一幀
+    const PHASE_NAMES=["起手期","出腿期","擊打期","收腿期","落地期"];
+    function phaseScores(tFeat, sFeat, path){
+      const N=tFeat.length, map=new Array(N).fill(null);
+      path.forEach(([i,j])=>{ map[i]= map[i]==null? j : Math.max(map[i],j); });
+      for(let i=0;i<N;i++) if(map[i]==null) map[i]=Math.min(N-1,i);
+      const seg=Math.max(1,Math.floor(N/5));
+      return PHASE_NAMES.map((nm,p)=>{
+        const lo=p*seg, hi=(p===4)?N:Math.min(N,(p+1)*seg);
+        let s=0,c=0; for(let i=lo;i<hi;i++){ s+=cosSim(tFeat[i], sFeat[map[i]]); c++; }
+        const sim=c? s/c : 0;
+        return { name:nm, score: clampPct(mapPct(1-sim, 0.04, 0.5)) };  // 距離小→分高
+      });
+    }
+
+    // 學員 frames vs 標準 frames → 正確度（角度+餘弦+DTW+階段，不用絕對座標）
     function computeMatchScore(tplFrames, stuFrames, stuSummary){
       if(!tplFrames.length || stuFrames.length<10) return null;
       const tF=scoreResample(tplFrames,SCORE_N), sF=scoreResample(stuFrames,SCORE_N);
       const tP=tF.map(f=>scoreNormPoints(f.lm)), sP=sF.map(f=>scoreNormPoints(f.lm));
-      const dtw=scoreDTW(tP,sP,0.1);
-      const accuracy=mapPct(dtw.meanDist,0.06,0.5);
+      const tFeat=tF.map(f=>poseFeat(f.lm)), sFeat=sF.map(f=>poseFeat(f.lm));
+      const dtw=dtwFeat(tFeat,sFeat,0.12);                 // ★ 角度餘弦 DTW 對齊
+      const accuracy=mapPct(dtw.meanDist,0.05,0.45);       // 餘弦距離越小越準
       const tpl2stu=new Array(SCORE_N).fill(null);
       dtw.path.forEach(([i,j])=>{ tpl2stu[i]= (tpl2stu[i]==null)? j : Math.max(tpl2stu[i],j); });
       for(let i=0;i<SCORE_N;i++) if(tpl2stu[i]==null) tpl2stu[i]=i;
+      const phases=phaseScores(tFeat, sFeat, dtw.path);    // ★ 五階段分段評分
       const stances=scoreDetectStances(tP);
-      const stanceRows=stances.map(i=>{ const j=tpl2stu[i]; const d=scoreFrameDist(tP[i],sP[j]);
-        return { score:mapPct(d,0.06,0.55), tTime:tF[i].t, sTime:sF[j].t }; });
+      const stanceRows=stances.map(i=>{ const j=tpl2stu[i]; const d=1-cosSim(tFeat[i],sFeat[j]);
+        return { score:clampPct(mapPct(d,0.05,0.5)), tTime:tF[i].t, sTime:sF[j].t }; });
       const stanceAvg=stanceRows.length?clampPct(stanceRows.reduce((a,r)=>a+r.score,0)/stanceRows.length):accuracy;
       const flow=computeFlowScore(stuFrames);
       let warp=0; dtw.path.forEach(([i,j])=>warp+=Math.abs(i/(SCORE_N-1)-j/(SCORE_N-1))); warp/=dtw.path.length;
@@ -2481,8 +2531,10 @@
       const ret=(re==null)?75:mapPct(re,0.12,0.6);
       const stability=judgeStability(stuFrames);   // 站姿/重心穩定
       const startend=judgeStartEnd(stuFrames);     // 起收式一致
-      const total=clampPct(accuracy*0.30+stanceAvg*0.25+flow*0.15+rhythm*0.15+ret*0.15);
-      return { total, dims:{ "動作準確度":accuracy,"定式到位":stanceAvg,"流暢度":flow,"節奏一致":rhythm,"回正(回原點)":ret }, stanceRows, stability, startend };
+      // 階段平均也納入總分（強化「比階段不比同幀」）
+      const phaseAvg = phases.length ? clampPct(phases.reduce((a,p)=>a+p.score,0)/phases.length) : accuracy;
+      const total=clampPct(accuracy*0.25+phaseAvg*0.20+stanceAvg*0.20+flow*0.15+rhythm*0.10+ret*0.10);
+      return { total, dims:{ "動作準確度":accuracy,"定式到位":stanceAvg,"流暢度":flow,"節奏一致":rhythm,"回正(回原點)":ret }, stanceRows, stability, startend, phases, phaseAvg };
     }
     // 站姿/重心穩定（複用結構評分工具）
     function judgeStability(frames){
@@ -2588,13 +2640,25 @@
         ["本次表現",fb.perf],["優點",fb.pros],["需要修正",fb.fix],["下次目標",fb.goal],["給家長的話",fb.parent]
       ].map(([h,p])=>`<div class="blk"><h5>${h}</h5><p>${esc(p)}</p></div>`).join("");
 
-      /* ---- 逐定式明細 ---- */
-      if(!res.stanceRows.length){ judgeStancesEl.innerHTML=`<div class="empty">未偵測到定式。</div>`; }
-      else judgeStancesEl.innerHTML=`<div class="rec-list" style="padding:0">`+res.stanceRows.map((r,idx)=>{
-        const col=r.score>=80?"var(--green)":r.score>=65?"var(--yellow)":"var(--red)";
-        return `<div class="history-item"><div class="history-score" style="color:${col}">${r.score}</div>
-          <div class="history-meta">第 ${idx+1} 個定式<br>標準 ${(r.tTime/1000).toFixed(1)}s ↔ 你 ${(r.sTime/1000).toFixed(1)}s</div></div>`;
-      }).join("")+`</div>`;
+      /* ---- 動作階段評分（DTW 對齊後比階段，不比同一幀） ---- */
+      let phaseHTML = "";
+      if(res.phases && res.phases.length){
+        phaseHTML = `<div style="font-family:'Rajdhani';letter-spacing:.08em;color:var(--cyan);text-transform:uppercase;font-size:12px;margin:2px 0 8px">動作階段評分（DTW 對齊）</div>`
+          + res.phases.map(p=>{
+            const col=p.score>=80?"var(--green)":p.score>=65?"var(--yellow)":"var(--red)";
+            return `<div class="cap"><div class="cap-top"><span>${p.name}</span><strong>${p.score}</strong></div>
+              <div class="bar"><i style="width:${p.score}%;background:${col}"></i></div></div>`;
+          }).join("")
+          + `<div style="font-family:'Rajdhani';letter-spacing:.08em;color:var(--cyan);text-transform:uppercase;font-size:12px;margin:14px 0 8px">逐定式明細</div>`;
+      }
+      const stanceHTML = res.stanceRows.length
+        ? `<div class="rec-list" style="padding:0">`+res.stanceRows.map((r,idx)=>{
+            const col=r.score>=80?"var(--green)":r.score>=65?"var(--yellow)":"var(--red)";
+            return `<div class="history-item"><div class="history-score" style="color:${col}">${r.score}</div>
+              <div class="history-meta">第 ${idx+1} 個定式<br>標準 ${(r.tTime/1000).toFixed(1)}s ↔ 你 ${(r.sTime/1000).toFixed(1)}s</div></div>`;
+          }).join("")+`</div>`
+        : `<div class="empty">未偵測到定式。</div>`;
+      judgeStancesEl.innerHTML = phaseHTML + stanceHTML;
 
       /* ---- 家長 LINE 報告 ---- */
       lastJudge={ tplName:tpl.meta.name||"品勢", trainTotal, conf, pros:fb.pros, fix:fb.fix, goal:fb.goal };
