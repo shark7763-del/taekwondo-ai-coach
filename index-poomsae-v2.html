@@ -2889,21 +2889,25 @@
           localStorage.setItem(flag, "1");
         }catch(e){ console.warn("內建範本匯入失敗", e); }
       }
-      // (2) 外部大型內建範本集（11 支型）：首次載入抓一次，之後用旗標擋不重抓
-      if(!localStorage.getItem("tkd_builtin_ext_v2")){
+      // (2) 外部大型內建範本集（11 支型）：版本 key + query string 確保各裝置抓同一版
+      const BUILTIN_EXT_KEY = "tkd_builtin_ext_v3";
+      const BUILTIN_EXT_URL = "poomsae-builtin.json?v=20260614-v3";
+      if(!localStorage.getItem(BUILTIN_EXT_KEY)){
         try{
-          const res = await fetch("poomsae-builtin.json", { cache:"force-cache" });
+          const res = await fetch(BUILTIN_EXT_URL, { cache:"no-store" });
           if(res.ok){
             const ext = await res.json();
             for(const t of ext){
               try{
                 if(!t || !t.id || !t.frames) continue;
                 const rec = JSON.parse(JSON.stringify(t));
-                if(!rec.summary) rec.summary = buildSummary(rec.frames);
+                rec.meta = rec.meta || {};
+                rec.meta.builtinVersion = BUILTIN_EXT_KEY;
+                if(!rec.summary) rec.summary = buildSummary(rec.frames, recAspect(rec));
                 await dbPut(rec);   // 覆蓋：確保 11 支都是影片版（含取代舊內建太極一章）
               }catch(e){ console.warn("外部內建匯入失敗", t && t.id, e); }
             }
-            localStorage.setItem("tkd_builtin_ext_v2", "1");
+            localStorage.setItem(BUILTIN_EXT_KEY, "1");
           }
         }catch(e){ console.warn("抓取外部內建範本失敗（file:// 不支援，請用 https/localhost）", e); }
       }
