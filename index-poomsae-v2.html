@@ -372,6 +372,11 @@
     /* ===== 三模式列 ===== */
     .modebar{ display:grid; grid-template-columns:1fr; gap:10px; margin:4px 0 14px; }
     @media(min-width:760px){ .modebar{ grid-template-columns:repeat(3,1fr); } }
+    .versionbar{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 14px; }
+    .versionlink{ display:inline-flex; align-items:center; gap:6px; padding:9px 12px; border-radius:10px;
+      color:var(--cyan); text-decoration:none; font-family:"Rajdhani",sans-serif; font-weight:700;
+      letter-spacing:.06em; background:var(--card-2); border:1px solid var(--line); }
+    .versionlink:hover{ border-color:var(--cyan); box-shadow:0 0 16px rgba(0,229,255,.24); }
     .modebtn{ text-align:left; display:grid; gap:3px; padding:14px 16px; border-radius:14px; cursor:pointer;
       background:var(--card-2); border:1px solid var(--line); color:var(--text);
       font-family:"Rajdhani",sans-serif; transition:.15s; }
@@ -445,6 +450,11 @@
       <h1>Taekwondo AI Coach</h1>
       <p class="subtitle">品勢 AI 評分系統｜動作錄製 · 範本對照 · 自動評分 · 結構評分 · 即時評判</p>
     </section>
+
+    <div class="versionbar" aria-label="版本切換">
+      <a class="versionlink" href="index-poomsae-v1.html">開啟舊版 v1</a>
+      <a class="versionlink" href="index-poomsae-v2.html">目前版本 v2</a>
+    </div>
 
     <!-- 三模式 -->
     <div class="modebar" id="modebar">
