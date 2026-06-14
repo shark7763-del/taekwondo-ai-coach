@@ -2873,6 +2873,23 @@
         return JSON.parse(txt);
       }catch(e){ console.warn("內建範本解析失敗", e); return []; }
     }
+    async function cleanupStaleBuiltinTemplates(ext, currentKey){
+      const currentIds = new Set(ext.map(t => t && t.id).filter(Boolean));
+      const baseNames = new Set(ext.map(t => String(t?.meta?.name || "").replace(/-標準$/,"")).filter(Boolean));
+      let metas = [];
+      try{ metas = await dbListMeta(); }catch(e){ console.warn("舊內建範本清理失敗", e); return; }
+      for(const m of metas){
+        if(!m || currentIds.has(m.id)) continue;
+        const meta = m.meta || {};
+        const base = String(meta.name || "").replace(/-標準$/,"");
+        const staleVersion = meta.builtinVersion && meta.builtinVersion !== currentKey;
+        const legacyBuiltinId = /^(builtin_|taegeuk_|koryo|kumgang|taebaek)/.test(String(m.id || ""));
+        const legacyBuiltinName = baseNames.has(base) && !String(m.id || "").startsWith("rec_") && !(meta.demonstrator || "").trim();
+        if(staleVersion || legacyBuiltinId || legacyBuiltinName){
+          try{ await dbDelete(m.id); }catch(e){ console.warn("刪除舊內建範本失敗", m.id, e); }
+        }
+      }
+    }
     async function seedBuiltins(){
       // (1) 內嵌小型內建（若有）
       const list = getBuiltinTemplates();
@@ -2890,13 +2907,14 @@
         }catch(e){ console.warn("內建範本匯入失敗", e); }
       }
       // (2) 外部大型內建範本集（11 支型）：版本 key + query string 確保各裝置抓同一版
-      const BUILTIN_EXT_KEY = "tkd_builtin_ext_v3";
-      const BUILTIN_EXT_URL = "poomsae-builtin.json?v=20260614-v3";
+      const BUILTIN_EXT_KEY = "tkd_builtin_ext_v4";
+      const BUILTIN_EXT_URL = "poomsae-builtin.json?v=20260614-v4";
       if(!localStorage.getItem(BUILTIN_EXT_KEY)){
         try{
           const res = await fetch(BUILTIN_EXT_URL, { cache:"no-store" });
           if(res.ok){
             const ext = await res.json();
+            await cleanupStaleBuiltinTemplates(ext, BUILTIN_EXT_KEY);
             for(const t of ext){
               try{
                 if(!t || !t.id || !t.frames) continue;
