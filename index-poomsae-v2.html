@@ -471,6 +471,7 @@
     <div class="tabs">
       <button class="tab-btn active" id="tabBtnKick" data-tab="kick">單一動作分析</button>
       <button class="tab-btn" id="tabBtnPoomsae" data-tab="poomsae">動作錄製</button>
+      <button class="tab-btn" id="tabBtnBatch" type="button">影片抽骨架</button>
       <button class="tab-btn" id="tabBtnCompare" data-tab="compare">範本對照</button>
       <button class="tab-btn" id="tabBtnScore" data-tab="score">自動評分</button>
       <button class="tab-btn" id="tabBtnStruct" data-tab="struct">結構評分</button>
@@ -557,10 +558,7 @@
         <section class="card">
           <div class="card-header">
             <h2 class="card-title">動作骨架錄製</h2>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
-              <a class="btn-sm" href="batch.html">影片抽骨架</a>
-              <div class="status warn" id="pmStatus">尚未開啟攝影機</div>
-            </div>
+            <div class="status warn" id="pmStatus">尚未開啟攝影機</div>
           </div>
 
           <div class="camera-box">
@@ -1966,6 +1964,7 @@
     pmImportFile.addEventListener("change", e => { if (e.target.files[0]) importJSON(e.target.files[0]); e.target.value = ""; });
     document.getElementById("tabBtnKick").addEventListener("click", () => setTab("kick"));
     document.getElementById("tabBtnPoomsae").addEventListener("click", () => setTab("poomsae"));
+    document.getElementById("tabBtnBatch").addEventListener("click", () => { window.location.href = "batch.html"; });
     document.getElementById("tabBtnCompare").addEventListener("click", () => setTab("compare"));
 
     /* ==========================================================
