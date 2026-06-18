@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>跆拳道 AI 教練平台</title>
+<!--
+  跆拳道 AI 教練平台 · 整合首頁
+  把「建立標準範本 / 品勢比對評分 / 橫踢評分」三個模組整合成一套系統的入口。
+  標準範本共用同一個本機資料庫(tkd_poomsae_db)，建立後評分系統可直接使用。
+-->
+<style>
+  :root{--bg:#070d18;--card:#0f1c30;--card2:#0a1626;--line:rgba(96,180,255,.24);
+    --text:#eef5ff;--muted:#9fb3c8;--cyan:#5be6ff;--blue:#4cc9f0;--green:#46e6a8;--yellow:#ffd166;--purple:#b18cff;--radius:16px}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Noto Sans TC","Microsoft JhengHei",system-ui,Arial,sans-serif;color:var(--text);
+    min-height:100vh;background:
+    radial-gradient(1000px 480px at 8% -10%,rgba(76,201,240,.16),transparent 60%),
+    radial-gradient(900px 480px at 108% 0,rgba(164,114,255,.15),transparent 55%),linear-gradient(180deg,#05080f,var(--bg))}
+  .wrap{max-width:920px;margin:0 auto;padding:0 18px 28px}
+  .hero{text-align:center;padding:26px 0 6px}
+  .hero .logo{font-size:42px}
+  h1{font-size:26px;margin:6px 0 4px;letter-spacing:-.4px}
+  .sub{color:var(--muted);font-size:14px;margin:0 auto 16px;max-width:560px;line-height:1.6}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 0 18px}
+  .stat{background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:14px;padding:14px;text-align:center}
+  .stat .n{font-size:26px;font-weight:900;letter-spacing:-1px}
+  .stat .l{font-size:12px;color:var(--muted);margin-top:2px}
+  .modules{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:640px){.modules{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr 1fr}}
+  .mod{display:block;text-decoration:none;color:var(--text);background:linear-gradient(180deg,var(--card),var(--card2));
+    border:1px solid var(--line);border-radius:var(--radius);padding:18px;transition:.15s;position:relative;overflow:hidden}
+  .mod:hover{transform:translateY(-2px);border-color:var(--cyan);box-shadow:0 8px 30px rgba(76,201,240,.15)}
+  .mod .ic{font-size:30px}
+  .mod .step{position:absolute;top:14px;right:16px;font-size:12px;font-weight:800;color:#06111f;background:linear-gradient(135deg,var(--cyan),var(--blue));border-radius:999px;padding:3px 10px}
+  .mod h3{margin:8px 0 4px;font-size:17px}
+  .mod p{margin:0;color:var(--muted);font-size:13px;line-height:1.6}
+  .mod .go{margin-top:12px;font-size:13px;font-weight:800;color:var(--cyan)}
+  .mod.purple:hover{border-color:var(--purple);box-shadow:0 8px 30px rgba(177,140,255,.15)}
+  .mod.purple .step{background:linear-gradient(135deg,var(--purple),#7db4ff)}
+  .mod.green:hover{border-color:var(--green)}
+  .mod.green .step{background:linear-gradient(135deg,var(--green),#8affd6)}
+  .flowcard{background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-top:16px}
+  .flow{font-size:13px;color:#cfe2f5;text-align:center;line-height:2.1}
+  .flow b{color:var(--cyan)}
+  .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:18px;line-height:1.7}
+</style>
+</head>
+<body>
+<style>
+.tkdnav{position:sticky;top:0;z-index:99999;display:flex;gap:4px;flex-wrap:wrap;align-items:center;
+  padding:8px 12px;background:rgba(7,13,24,.95);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  border-bottom:1px solid rgba(96,180,255,.3);font-family:system-ui,"Microsoft JhengHei",sans-serif}
+.tkdnav .tkdnav-brand{font-weight:800;color:#5be6ff;font-size:14px;margin-right:auto;white-space:nowrap}
+.tkdnav a{color:#cfe2f5;text-decoration:none;font-size:13px;font-weight:700;padding:6px 11px;border-radius:9px;border:1px solid transparent;white-space:nowrap}
+.tkdnav a:hover{background:rgba(91,230,255,.12)}
+.tkdnav a.tkdnav-active{background:linear-gradient(135deg,#5be6ff,#4cc9f0);color:#06111f}
+@media(max-width:560px){.tkdnav .tkdnav-brand{width:100%;margin-right:0;margin-bottom:4px}}
+</style>
+<nav class="tkdnav">
+  <span class="tkdnav-brand">🥋 跆拳道 AI 教練平台</span>
+  <a href="hub.html" class="tkdnav-active">🏠 首頁</a>
+  <a href="batch.html">🎯 建立標準</a>
+  <a href="index-poomsae-v2.html">🥋 品勢比對</a>
+  <a href="index.html">🦵 橫踢評分</a>
+</nav>
+<div class="wrap">
+  <div class="hero">
+    <div class="logo">🥋</div>
+    <h1>跆拳道 AI 教練平台</h1>
+    <p class="sub">教練示範影片 → 建立標準範本 → 學生上傳比對 → AI 評分回饋。骨架運算全在本機，不上傳雲端。</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n" id="stTpl" style="color:var(--green)">—</div><div class="l">標準範本</div></div>
+    <div class="stat"><div class="n" id="stRec" style="color:var(--cyan)">—</div><div class="l">本機錄製總數</div></div>
+    <div class="stat"><div class="n" id="stKick" style="color:var(--yellow)">—</div><div class="l">橫踢評分紀錄</div></div>
+  </div>
+
+  <div class="modules">
+    <a class="mod" href="batch.html">
+      <span class="step">STEP 1</span>
+      <div class="ic">🎯</div>
+      <h3>建立標準範本</h3>
+      <p>把教練示範影片批次抽成 33 點骨架標準範本。含影片品質檢查、多影片合成平均標準、可直接存入本系統。</p>
+      <div class="go">開始建立 →</div>
+    </a>
+    <a class="mod purple" href="index-poomsae-v2.html">
+      <span class="step">STEP 2</span>
+      <div class="ic">🥋</div>
+      <h3>品勢比對評分</h3>
+      <p>學生錄製或上傳品勢動作，與標準範本即時對照、自動評分與結構評判，給選手回饋。</p>
+      <div class="go">前往評分 →</div>
+    </a>
+    <a class="mod green" href="index.html">
+      <span class="step">工具</span>
+      <div class="ic">🦵</div>
+      <h3>橫踢動作評分</h3>
+      <p>橫踢單一動作 AI 評分卡：收膝高度、髖部旋轉、膝蓋伸展等六項，含進步趨勢圖。</p>
+      <div class="go">前往評分 →</div>
+    </a>
+    <a class="mod" href="index-poomsae-v1.html">
+      <span class="step">舊版</span>
+      <div class="ic">🗂️</div>
+      <h3>品勢比對（v1）</h3>
+      <p>舊版品勢比對工具，保留備查。新功能請用上方品勢比對評分（v2）。</p>
+      <div class="go">開啟舊版 →</div>
+    </a>
+  </div>
+
+  <div class="flowcard">
+    <div class="flow">
+      <b>教練示範影片</b> → 批次建立標準範本 → 學生上傳品勢影片 → <b>AI 比對標準</b> → 產生選手回饋<br>
+      → 產生家長報告 → 累積訓練進步曲線 → <b>建立研究資料庫</b>
+    </div>
+  </div>
+
+  <p class="foot">純前端 · 三模組共用本機資料庫(tkd_poomsae_db)，標準範本建立後評分系統可直接使用 · 建議桌機 Chrome / Edge</p>
+</div>
+
+<script>
+  // 讀取本機資料庫狀態（與評分系統共用）
+  (function(){
+    function setN(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
+    // 橫踢評分紀錄（localStorage）
+    try{ const h=JSON.parse(localStorage.getItem("tkd_ai_coach_history")||"[]"); setN("stKick",Array.isArray(h)?h.length:0);}catch(_){setN("stKick","0");}
+    // 品勢範本（IndexedDB tkd_poomsae_db / store: meta）
+    try{
+      const rq=indexedDB.open("tkd_poomsae_db",1);
+      rq.onupgradeneeded=e=>{const d=e.target.result;
+        if(!d.objectStoreNames.contains("meta"))d.createObjectStore("meta",{keyPath:"id"});
+        if(!d.objectStoreNames.contains("frames"))d.createObjectStore("frames",{keyPath:"id"});};
+      rq.onsuccess=e=>{const db=e.target.result;
+        if(!db.objectStoreNames.contains("meta")){setN("stRec","0");setN("stTpl","0");return;}
+        const all=db.transaction("meta").objectStore("meta").getAll();
+        all.onsuccess=ev=>{const list=ev.target.result||[];
+          setN("stRec",list.length);
+          setN("stTpl",list.filter(m=>m.meta&&m.meta.isTemplate).length);};
+        all.onerror=()=>{setN("stRec","0");setN("stTpl","0");};};
+      rq.onerror=()=>{setN("stRec","0");setN("stTpl","0");};
+    }catch(_){setN("stRec","0");setN("stTpl","0");}
+  })();
+</script>
+</body>
+</html>

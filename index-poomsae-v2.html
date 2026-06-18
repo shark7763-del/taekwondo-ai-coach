@@ -433,6 +433,23 @@
 </head>
 
 <body>
+<style>
+.tkdnav{position:sticky;top:0;z-index:99999;display:flex;gap:4px;flex-wrap:wrap;align-items:center;
+  padding:8px 12px;background:rgba(7,13,24,.95);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  border-bottom:1px solid rgba(96,180,255,.3);font-family:system-ui,"Microsoft JhengHei",sans-serif}
+.tkdnav .tkdnav-brand{font-weight:800;color:#5be6ff;font-size:14px;margin-right:auto;white-space:nowrap}
+.tkdnav a{color:#cfe2f5;text-decoration:none;font-size:13px;font-weight:700;padding:6px 11px;border-radius:9px;border:1px solid transparent;white-space:nowrap}
+.tkdnav a:hover{background:rgba(91,230,255,.12)}
+.tkdnav a.tkdnav-active{background:linear-gradient(135deg,#5be6ff,#4cc9f0);color:#06111f}
+@media(max-width:560px){.tkdnav .tkdnav-brand{width:100%;margin-right:0;margin-bottom:4px}}
+</style>
+<nav class="tkdnav">
+  <span class="tkdnav-brand">🥋 跆拳道 AI 教練平台</span>
+  <a href="hub.html">🏠 首頁</a>
+  <a href="batch.html">🎯 建立標準</a>
+  <a href="index-poomsae-v2.html" class="tkdnav-active">🥋 品勢比對</a>
+  <a href="index.html">🦵 橫踢評分</a>
+</nav>
   <main class="app">
     <!-- 共用攝影機來源（永遠隱藏，避免被分頁 display:none 暫停） -->
     <video id="video" playsinline muted style="display:none"></video>

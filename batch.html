@@ -105,6 +105,23 @@
 </style>
 </head>
 <body>
+<style>
+.tkdnav{position:sticky;top:0;z-index:99999;display:flex;gap:4px;flex-wrap:wrap;align-items:center;
+  padding:8px 12px;background:rgba(7,13,24,.95);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+  border-bottom:1px solid rgba(96,180,255,.3);font-family:system-ui,"Microsoft JhengHei",sans-serif;margin:-18px -18px 14px}
+.tkdnav .tkdnav-brand{font-weight:800;color:#5be6ff;font-size:14px;margin-right:auto;white-space:nowrap}
+.tkdnav a{color:#cfe2f5;text-decoration:none;font-size:13px;font-weight:700;padding:6px 11px;border-radius:9px;border:1px solid transparent;white-space:nowrap}
+.tkdnav a:hover{background:rgba(91,230,255,.12)}
+.tkdnav a.tkdnav-active{background:linear-gradient(135deg,#5be6ff,#4cc9f0);color:#06111f}
+@media(max-width:560px){.tkdnav .tkdnav-brand{width:100%;margin-right:0;margin-bottom:4px}}
+</style>
+<nav class="tkdnav">
+  <span class="tkdnav-brand">🥋 跆拳道 AI 教練平台</span>
+  <a href="hub.html">🏠 首頁</a>
+  <a href="batch.html" class="tkdnav-active">🎯 建立標準</a>
+  <a href="index-poomsae-v2.html">🥋 品勢比對</a>
+  <a href="index.html">🦵 橫踢評分</a>
+</nav>
 <div class="wrap">
   <h1>AI 品勢標準資料庫建立工具</h1>
   <p class="sub">教練示範影片 → 品質檢查 → 批次抽骨架 → 檢查/合成標準 → 匯出。骨架只在本機運算，不上傳。</p>
@@ -238,8 +255,11 @@
       </div>
       <div class="mini" id="expSummary" style="margin-bottom:12px"></div>
 
-      <button class="btn-green" id="expJson">① 匯出標準範本 JSON（給 Taekwondo AI Coach 匯入）</button>
-      <div class="mini" style="margin:8px 0 14px">匯出後 → 開 index-poomsae-v2.html →「動作錄製」分頁 →「匯入 JSON」→ 選這個檔。品質達標者會自動成為標準範本。</div>
+      <button class="btn-cyan" id="saveDb">★ 直接存入品勢比對評分系統（免匯出檔案）</button>
+      <div class="mini" id="saveDbMsg" style="margin:8px 0 14px">一鍵寫入本系統共用的本機資料庫，馬上能在「品勢比對」分頁使用。（三個工具在同一個網站才會共用資料庫）</div>
+
+      <button class="btn-green" id="expJson">① 匯出標準範本 JSON（備份／給別台電腦匯入）</button>
+      <div class="mini" style="margin:8px 0 14px">若要在另一台電腦使用：匯出後 → 開 index-poomsae-v2.html →「動作錄製」分頁 →「匯入 JSON」→ 選這個檔。品質達標者會自動成為標準範本。</div>
 
       <button class="btn-ghost" id="expReport">② 匯出範本品質報告（HTML，可列印成 PDF）</button>
       <div class="mini" style="margin:8px 0 14px">在開啟的報告頁按瀏覽器列印（Ctrl/⌘+P）→ 另存為 PDF。</div>
@@ -793,6 +813,31 @@ function dl(blob,filename){const u=URL.createObjectURL(blob);const a=document.cr
 $("expJson").onclick=()=>{
   const out=collect(); if(!out.length){alert("沒有可匯出的範本，請先到 Step 4 勾選。");return;}
   dl(new Blob([JSON.stringify(out)],{type:"application/json;charset=utf-8"}),"poomsae-standard-db-"+Date.now()+".json");
+};
+/* 直接寫入評分系統共用的本機資料庫（與 index-poomsae-v2.html 同一個 IndexedDB） */
+function openCoachDB(){return new Promise((res,rej)=>{
+  const rq=indexedDB.open("tkd_poomsae_db",1);
+  rq.onupgradeneeded=e=>{const d=e.target.result;
+    if(!d.objectStoreNames.contains("meta")) d.createObjectStore("meta",{keyPath:"id"});
+    if(!d.objectStoreNames.contains("frames")) d.createObjectStore("frames",{keyPath:"id"});};
+  rq.onsuccess=e=>res(e.target.result); rq.onerror=()=>rej(rq.error||new Error("無法開啟資料庫"));});}
+$("saveDb").onclick=async()=>{
+  const out=collect(); if(!out.length){alert("沒有可存入的範本，請先到 Step 4 勾選「納入匯出」。");return;}
+  $("saveDb").disabled=true; $("saveDbMsg").textContent="寫入中…";
+  try{
+    const db=await openCoachDB();
+    await new Promise((res,rej)=>{
+      const tx=db.transaction(["meta","frames"],"readwrite");
+      tx.oncomplete=res; tx.onerror=()=>rej(tx.error||new Error("寫入失敗"));
+      out.forEach(o=>{
+        tx.objectStore("meta").put({id:o.id,schemaVersion:o.schemaVersion,meta:o.meta,summary:o.summary});
+        tx.objectStore("frames").put({id:o.id,frames:o.frames});
+      });
+    });
+    const tpl=out.filter(o=>o.meta.isTemplate).length;
+    $("saveDbMsg").innerHTML=`✅ 已存入 ${out.length} 份（其中 <b style="color:var(--green)">${tpl}</b> 份標準範本）。<a href="index-poomsae-v2.html" style="color:var(--cyan);font-weight:700">→ 前往品勢比對查看</a>`;
+  }catch(e){ $("saveDbMsg").textContent="存入失敗："+(e.message||e); }
+  $("saveDb").disabled=false;
 };
 $("expCsv").onclick=()=>{
   const out=collect(); if(!out.length){alert("沒有可匯出的範本。");return;}
