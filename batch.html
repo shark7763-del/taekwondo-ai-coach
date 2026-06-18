@@ -3,213 +3,862 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>品勢影片 → 標準範本｜批次骨架抽取</title>
+<title>AI 品勢標準資料庫建立工具</title>
 <!--
-  品勢影片批次骨架抽取器
-  一次選多支品勢 mp4 → 離線逐 frame 抽 MediaPipe 33 點骨架 → 15fps 降取樣
-  → 依檔名自動對應品勢章節 → 匯出可直接匯入 Taekwondo AI Coach 的標準範本 JSON
-  純前端單檔，骨架運算只在本機瀏覽器，不上傳。
+  AI 品勢標準資料庫建立工具（純前端單檔）
+  教練示範影片 → 品質檢查 → 批次抽 MediaPipe 33 點骨架 → 檢查/合成標準 → 匯出
+  匯出的 JSON 可直接被 index-poomsae-v2.html 的「動作錄製 → 匯入 JSON」吃進去當標準範本。
+  影片只在本機瀏覽器運算，不上傳雲端。建議桌機 Chrome / Edge。
 -->
 <style>
-  :root{--bg:#070d18;--card:#0f1c30;--line:rgba(96,180,255,.24);--text:#eef5ff;--muted:#9fb3c8;
-    --cyan:#5be6ff;--blue:#4cc9f0;--green:#46e6a8;--yellow:#ffd166;--red:#ff5d6c;--radius:16px}
+  :root{
+    --bg:#070d18;--card:#0f1c30;--card2:#0a1626;--line:rgba(96,180,255,.24);
+    --text:#eef5ff;--muted:#9fb3c8;--dim:#6f86a0;
+    --cyan:#5be6ff;--blue:#4cc9f0;--green:#46e6a8;--yellow:#ffd166;--red:#ff5d6c;--purple:#b18cff;
+    --radius:16px}
   *{box-sizing:border-box}
   body{margin:0;font-family:"Noto Sans TC","Microsoft JhengHei",system-ui,Arial,sans-serif;color:var(--text);
     min-height:100vh;padding:18px;background:
     radial-gradient(1000px 480px at 8% -10%,rgba(76,201,240,.16),transparent 60%),
     radial-gradient(900px 480px at 108% 0,rgba(164,114,255,.15),transparent 55%),linear-gradient(180deg,#05080f,var(--bg))}
-  .wrap{max-width:880px;margin:0 auto}
+  .wrap{max-width:960px;margin:0 auto}
   h1{font-size:24px;margin:6px 0 4px;letter-spacing:-.3px}
-  .sub{color:var(--muted);font-size:14px;margin:0 0 16px}
-  .card{background:linear-gradient(180deg,var(--card),#0a1626);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px}
-  .pill{font-size:12px;padding:5px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 14px}
+  .card{background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+  .pill{font-size:12px;padding:5px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
   .pill.ok{color:var(--green);border-color:rgba(70,230,168,.4);background:rgba(70,230,168,.08)}
   .pill.warn{color:var(--yellow);border-color:rgba(255,209,102,.4);background:rgba(255,209,102,.08)}
+  .pill.bad{color:var(--red);border-color:rgba(255,93,108,.4);background:rgba(255,93,108,.08)}
   .pill.busy{color:var(--cyan);border-color:rgba(91,230,255,.4);background:rgba(91,230,255,.08)}
-  button{border:none;border-radius:13px;padding:14px 16px;font-weight:800;font-size:15px;color:#06111f;cursor:pointer;transition:filter .15s,transform .1s;width:100%}
-  button:active{transform:scale(.99)} button:hover{filter:brightness(1.08)} button:disabled{opacity:.45;cursor:not-allowed}
+  button{border:none;border-radius:13px;padding:13px 16px;font-weight:800;font-size:15px;color:#06111f;cursor:pointer;transition:filter .15s,transform .1s;width:100%}
+  button:active{transform:scale(.99)} button:hover{filter:brightness(1.08)} button:disabled{opacity:.4;cursor:not-allowed}
   .btn-cyan{background:linear-gradient(135deg,var(--cyan),var(--blue))}
   .btn-green{background:linear-gradient(135deg,var(--green),#8affd6)}
+  .btn-purple{background:linear-gradient(135deg,var(--purple),#7db4ff)}
   .btn-ghost{background:rgba(255,255,255,.08);color:var(--text);border:1px solid var(--line)}
   input[type=file]{display:none}
-  .file-btn{display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--cyan),var(--blue));border-radius:13px;padding:14px 16px;font-weight:800;color:#06111f;cursor:pointer}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  .file-btn{display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--cyan),var(--blue));border-radius:13px;padding:14px 16px;font-weight:800;color:#06111f;cursor:pointer;width:100%}
+  select,input[type=text]{background:rgba(255,255,255,.06);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 10px;font-size:13px;font-family:inherit;width:100%}
+  textarea{background:rgba(255,255,255,.06);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 10px;font-size:13px;font-family:inherit;width:100%;resize:vertical;min-height:46px}
+  .mini{color:var(--muted);font-size:12px;line-height:1.6}
   .bar{height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;border:1px solid rgba(255,255,255,.08);margin-top:8px}
   .bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--green));transition:width .2s}
-  .list{display:grid;gap:8px}
-  .it{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
-  .it .nm{font-weight:700;font-size:14px}
-  .it .meta{font-size:12px;color:var(--muted);margin-top:3px}
-  .it .st{font-size:12.5px;font-weight:800;white-space:nowrap}
-  .st.wait{color:var(--muted)} .st.run{color:var(--cyan)} .st.done{color:var(--green)} .st.bad{color:var(--red)}
-  .mini{color:var(--muted);font-size:12px;line-height:1.6}
-  canvas{display:none}
   .note{border-left:3px solid var(--yellow);background:rgba(255,209,102,.06);padding:11px 13px;border-radius:8px;font-size:13px;color:#ffe9b8;margin-top:10px;line-height:1.6}
+
+  /* Stepper */
+  .stepper{display:flex;gap:6px;margin:0 0 16px;flex-wrap:wrap}
+  .step-chip{flex:1;min-width:120px;display:flex;align-items:center;gap:9px;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:12px;padding:9px 11px;cursor:pointer;transition:.15s}
+  .step-chip .n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:13px;background:rgba(255,255,255,.1);color:var(--muted);flex-shrink:0}
+  .step-chip .lb{font-size:12.5px;color:var(--muted);font-weight:700;line-height:1.2}
+  .step-chip.active{border-color:var(--cyan);background:rgba(91,230,255,.1)}
+  .step-chip.active .n{background:linear-gradient(135deg,var(--cyan),var(--blue));color:#06111f}
+  .step-chip.active .lb{color:var(--text)}
+  .step-chip.done .n{background:linear-gradient(135deg,var(--green),#8affd6);color:#06111f}
+  .panel{display:none} .panel.show{display:block}
+
+  .navrow{display:flex;gap:10px;margin-top:14px}
+  .navrow button{width:auto;flex:1}
+
+  /* item list */
+  .list{display:grid;gap:9px}
+  .it{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:12px;padding:12px 13px}
+  .it .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .it .nm{font-weight:800;font-size:14px;word-break:break-all}
+  .it .meta{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.6}
+  .it .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
+  .st{font-size:12.5px;font-weight:800;white-space:nowrap}
+  .st.wait{color:var(--muted)} .st.run{color:var(--cyan)} .st.done{color:var(--green)} .st.bad{color:var(--red)} .st.warn{color:var(--yellow)}
+
+  /* quality meters */
+  .qrow{display:grid;grid-template-columns:96px 1fr 44px;gap:8px;align-items:center;font-size:12px;margin-top:6px}
+  .qrow .lab{color:var(--muted)}
+  .qbar{height:8px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+  .qbar>i{display:block;height:100%;width:0;border-radius:999px}
+  .qval{text-align:right;font-weight:800}
+  .score{display:flex;align-items:baseline;gap:8px}
+  .score .big{font-size:34px;font-weight:900;letter-spacing:-1px}
+  .verdict{display:inline-block;font-weight:800;font-size:13px;padding:5px 11px;border-radius:999px;margin-top:4px}
+  .v-go{color:var(--green);background:rgba(70,230,168,.12);border:1px solid rgba(70,230,168,.4)}
+  .v-ref{color:var(--yellow);background:rgba(255,209,102,.12);border:1px solid rgba(255,209,102,.4)}
+  .v-no{color:var(--red);background:rgba(255,93,108,.12);border:1px solid rgba(255,93,108,.4)}
+
+  .coachnotes{margin:8px 0 0;padding:0;list-style:none;font-size:12.5px;line-height:1.7}
+  .coachnotes li{padding-left:18px;position:relative;color:#d7e6f5}
+  .coachnotes li::before{content:"›";position:absolute;left:4px;color:var(--cyan);font-weight:900}
+
+  /* preview */
+  .previewWrap{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px}
+  #preview,#replayCv{width:100%;max-width:480px;display:block;margin:0 auto;background:#040a14;border:1px solid var(--line);border-radius:12px}
+  .timeline{height:14px;border-radius:6px;overflow:hidden;display:flex;border:1px solid var(--line);margin-top:6px}
+  .timeline .seg{height:100%}
+  canvas.hidden{display:none}
+
+  .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-right:5px}
+  .tag.merge{color:var(--purple);border-color:rgba(177,140,255,.45);background:rgba(177,140,255,.1)}
+  .switch{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);cursor:pointer;user-select:none}
+  .switch input{width:auto}
+  .divider{height:1px;background:var(--line);margin:14px 0}
+  details summary{cursor:pointer;color:var(--cyan);font-size:13px;font-weight:700}
+  .kv{font-size:12px;color:var(--muted);line-height:1.8}
+  .flow{font-size:12px;color:var(--dim);text-align:center;line-height:1.9;margin-top:6px}
+  .flow b{color:var(--muted)}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>品勢影片 → 標準範本</h1>
-  <p class="sub">批次把品勢 mp4 抽成骨架範本，匯入 Taekwondo AI Coach 當對照組</p>
+  <h1>AI 品勢標準資料庫建立工具</h1>
+  <p class="sub">教練示範影片 → 品質檢查 → 批次抽骨架 → 檢查/合成標準 → 匯出。骨架只在本機運算，不上傳。</p>
 
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px">
-      <b>① 選影片</b><span class="pill busy" id="mpStatus">AI 模型載入中…</span>
-    </div>
-    <label class="file-btn" style="width:100%">選擇品勢影片（可多選 mp4）
-      <input type="file" id="files" accept="video/mp4,video/webm,video/*" multiple />
-    </label>
-    <div class="row">
-      <div class="mini">取樣 FPS：<b id="fpsLab">15</b>　關鍵點：<b>33</b></div>
-      <div class="mini" style="text-align:right">已選：<b id="cntLab">0</b> 支</div>
-    </div>
-    <div class="note">影片要求：<b>全程單人、全身入鏡、機位固定、無剪接/多角度</b>，骨架才抓得準。檔名（如 <b>太極一章.mp4</b>）會自動對應品勢章節。</div>
+  <div class="stepper" id="stepper">
+    <div class="step-chip" data-s="1"><span class="n">1</span><span class="lb">選擇影片</span></div>
+    <div class="step-chip" data-s="2"><span class="n">2</span><span class="lb">影片品質檢查</span></div>
+    <div class="step-chip" data-s="3"><span class="n">3</span><span class="lb">批次抽取骨架</span></div>
+    <div class="step-chip" data-s="4"><span class="n">4</span><span class="lb">檢查與確認</span></div>
+    <div class="step-chip" data-s="5"><span class="n">5</span><span class="lb">匯出標準範本</span></div>
   </div>
 
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <b>② 開始抽取</b><span class="pill" id="overallPill">尚未開始</span>
+  <!-- STEP 1 -->
+  <section class="panel" id="p1">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">
+        <b>Step 1 · 選擇教練示範影片</b><span class="pill busy" id="mpStatus">AI 模型載入中…</span>
+      </div>
+      <label class="file-btn">＋ 選擇品勢影片（可多選 mp4 / mov / webm）
+        <input type="file" id="files" accept="video/mp4,video/webm,video/quicktime,video/*" multiple />
+      </label>
+      <div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+        <div>
+          <div class="mini" style="margin-bottom:4px">取樣 FPS（每秒抽幾格）</div>
+          <select id="fpsSel">
+            <option value="10">10（最快）</option>
+            <option value="12">12</option>
+            <option value="15" selected>15（建議）</option>
+            <option value="20">20</option>
+            <option value="24">24</option>
+            <option value="30">30（最細，最慢）</option>
+          </select>
+        </div>
+        <div>
+          <div class="mini" style="margin-bottom:4px">建立者 / 教練名稱</div>
+          <input type="text" id="createdBy" placeholder="例：王教練" />
+        </div>
+      </div>
+      <div class="note">拍攝建議：<b>全程單人、全身入鏡（頭到腳都在框內）、機位用腳架固定、人物佔畫面高度六成以上、背景單純、光線充足、不剪接</b>。檔名（例 <b>太極一章.mp4</b>）會自動對應品勢章節，之後可手動修改。</div>
+      <div class="mini" style="margin-top:10px">已選：<b id="cntLab">0</b> 支影片</div>
     </div>
-    <button class="btn-cyan" id="runBtn" disabled>開始批次抽骨架</button>
-    <div class="bar"><i id="overallBar"></i></div>
-    <div class="mini" id="overallTxt" style="margin-top:8px">選好影片後按開始。整批處理可能需要數分鐘（每支約 30–90 秒）。</div>
-    <div class="list" id="list" style="margin-top:12px"></div>
-  </div>
+    <div class="navrow"><button class="btn-cyan" id="toStep2" disabled>下一步：影片品質檢查 →</button></div>
+  </section>
 
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <b>③ 匯出範本</b><span class="pill" id="resultPill">尚無結果</span>
+  <!-- STEP 2 -->
+  <section class="panel" id="p2">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b>Step 2 · 影片品質檢查</b><span class="pill" id="qcPill">尚未檢查</span>
+      </div>
+      <p class="mini">先快速掃描每支影片，評估是否適合建立標準範本（全身入鏡 / 單人 / 骨架辨識率 / 畫面穩定度 / 人物大小 / 遮擋）。這一步只取樣少量畫面，速度快。</p>
+      <button class="btn-cyan" id="qcBtn">開始品質檢查</button>
+      <div class="bar"><i id="qcBar"></i></div>
+      <div class="list" id="qcList" style="margin-top:12px"></div>
     </div>
-    <button class="btn-green" id="exportBtn" disabled>匯出全部範本（一個 JSON）</button>
-    <div class="mini" style="margin-top:10px">匯出後 → 開 Taekwondo AI Coach（index-poomsae-v2.html）→「動作錄製」分頁 →「匯入 JSON」→ 選這個檔，全部型就一次變成標準範本。</div>
-  </div>
+    <div class="navrow">
+      <button class="btn-ghost" id="back1">← 上一步</button>
+      <button class="btn-cyan" id="toStep3" disabled>下一步：抽取骨架 →</button>
+    </div>
+  </section>
 
-  <p class="mini" style="text-align:center">純前端 · 骨架只在本機運算不上傳 · 建議桌機 Chrome/Edge</p>
+  <!-- STEP 3 -->
+  <section class="panel" id="p3">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b>Step 3 · 批次抽取骨架</b><span class="pill" id="exPill">尚未開始</span>
+      </div>
+      <p class="mini">逐格抽取 33 點骨架。下方會即時顯示目前畫面與骨架線條，並標出骨架遺失較多的片段。整批可能需要數分鐘。</p>
+      <div class="previewWrap">
+        <canvas id="preview" width="480" height="360"></canvas>
+        <div>
+          <div class="mini" id="previewLab">準備中…</div>
+          <div class="timeline" id="liveTimeline"></div>
+          <div class="mini" style="margin-top:4px">綠＝骨架良好　黃＝信心偏低　紅＝骨架遺失</div>
+        </div>
+      </div>
+      <label class="switch" style="margin-top:10px"><input type="checkbox" id="skipBad" /> 只抽取品質檢查「可用」的影片（略過不建議使用的）</label>
+      <button class="btn-cyan" id="exBtn" style="margin-top:10px">開始批次抽取</button>
+      <div class="bar"><i id="exBar"></i></div>
+      <div class="mini" id="exTxt" style="margin-top:8px"></div>
+      <div class="list" id="exList" style="margin-top:12px"></div>
+    </div>
+    <div class="navrow">
+      <button class="btn-ghost" id="back2">← 上一步</button>
+      <button class="btn-cyan" id="toStep4" disabled>下一步：檢查與確認 →</button>
+    </div>
+  </section>
+
+  <!-- STEP 4 -->
+  <section class="panel" id="p4">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b>Step 4 · 檢查與確認範本</b><span class="pill" id="revPill">—</span>
+      </div>
+      <p class="mini">逐支確認抽取結果與建議用途，設定品勢名稱、範本類型與備註。可重播骨架預覽。勾選要納入匯出的範本。</p>
+      <div class="list" id="revList" style="margin-top:10px"></div>
+
+      <div class="divider"></div>
+      <b>多影片合成標準</b>
+      <p class="mini">同一個品勢若有多支合格影片，可合成一份「平均標準範本」（自動排除不建議使用的影片）。</p>
+      <button class="btn-purple" id="mergeBtn">依品勢自動合成平均標準</button>
+      <div class="list" id="mergeList" style="margin-top:10px"></div>
+    </div>
+
+    <!-- replay modal-ish inline -->
+    <div class="card" id="replayCard" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b id="replayTitle">骨架預覽</b>
+        <button class="btn-ghost" id="replayClose" style="width:auto;padding:6px 12px">關閉</button>
+      </div>
+      <canvas id="replayCv" width="480" height="360"></canvas>
+      <div class="timeline" id="replayTimeline" style="margin-top:8px"></div>
+      <div class="navrow" style="margin-top:10px">
+        <button class="btn-cyan" id="replayPlay" style="flex:0 0 110px">播放</button>
+        <input type="range" id="replaySlider" min="0" max="1000" value="0" style="flex:1;width:auto" />
+      </div>
+      <div class="mini" id="replayTime" style="margin-top:6px">0.0s</div>
+    </div>
+
+    <div class="navrow">
+      <button class="btn-ghost" id="back3">← 上一步</button>
+      <button class="btn-green" id="toStep5" disabled>下一步：匯出 →</button>
+    </div>
+  </section>
+
+  <!-- STEP 5 -->
+  <section class="panel" id="p5">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b>Step 5 · 匯出標準範本</b><span class="pill ok" id="expPill">—</span>
+      </div>
+      <div class="mini" id="expSummary" style="margin-bottom:12px"></div>
+
+      <button class="btn-green" id="expJson">① 匯出標準範本 JSON（給 Taekwondo AI Coach 匯入）</button>
+      <div class="mini" style="margin:8px 0 14px">匯出後 → 開 index-poomsae-v2.html →「動作錄製」分頁 →「匯入 JSON」→ 選這個檔。品質達標者會自動成為標準範本。</div>
+
+      <button class="btn-ghost" id="expReport">② 匯出範本品質報告（HTML，可列印成 PDF）</button>
+      <div class="mini" style="margin:8px 0 14px">在開啟的報告頁按瀏覽器列印（Ctrl/⌘+P）→ 另存為 PDF。</div>
+
+      <button class="btn-ghost" id="expCsv">③ 匯出 metadata CSV（給 Excel / 資料庫）</button>
+      <div style="height:12px"></div>
+      <button class="btn-ghost" id="expSkel">④ 匯出骨架預覽檔（可離線播放的 HTML）</button>
+    </div>
+    <div class="card">
+      <div class="flow">
+        <b>教練示範影片</b> ↓ 批次建立標準範本 ↓ 學生上傳品勢影片 ↓ AI 比對標準 ↓ 產生選手回饋<br>
+        ↓ 產生家長報告 ↓ 累積訓練進步曲線 ↓ 建立研究資料庫
+      </div>
+    </div>
+    <div class="navrow"><button class="btn-ghost" id="back4">← 上一步</button></div>
+  </section>
+
+  <p class="mini" style="text-align:center;margin-top:8px">純前端 · 骨架只在本機運算不上傳 · 建議桌機 Chrome / Edge · 大型影片請用桌機處理</p>
 </div>
 
-<canvas id="cv" width="640" height="480"></canvas>
+<canvas id="cv" class="hidden" width="640" height="480"></canvas>
 
 <script type="module">
 const $=id=>document.getElementById(id);
-const filesInput=$("files"), runBtn=$("runBtn"), exportBtn=$("exportBtn");
-const listEl=$("list"), mpStatus=$("mpStatus"), overallPill=$("overallPill"), overallBar=$("overallBar"), overallTxt=$("overallTxt"), resultPill=$("resultPill");
-const cntLab=$("cntLab");
-
-const FPS=15;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const r3=v=>v==null?0:Math.round(v*1000)/1000, r2=v=>v==null?1:Math.round(v*100)/100;
-let landmarker=null, mpReady=false, files=[], results=[], running=false, globalBase=0;
+const median=a=>{if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y);const m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2;};
+const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
+const std=a=>{if(a.length<2)return 0;const m=mean(a);return Math.sqrt(mean(a.map(x=>(x-m)**2)));};
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-/* 檔名 → 品勢類型 + 名稱 */
+/* ---- MediaPipe 關節索引 ---- */
+const J={nose:0,Lear:7,Rear:8,Lsh:11,Rsh:12,Lel:13,Rel:14,Lwr:15,Rwr:16,Lhip:23,Rhip:24,Lkn:25,Rkn:26,Lank:27,Rank:28};
+const QJ=[0,11,12,13,14,15,16,23,24,25,26,27,28]; // 品質評估用關節
+const CONN=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28],[27,29],[27,31],[29,31],[28,30],[28,32],[30,32],[0,11],[0,12]];
+
+const TYPE_OPTS=[["初學者標準"],["比賽標準"],["黑帶標準"],["兒童教學標準"],["研究用標準"]];
+
+/* ---- 全域狀態 ---- */
+let landmarker=null, mpReady=false;
+let items=[];           // {id,file,name,poomsaeName,poomsaeType}
+let qc={};              // id -> {score,metrics,verdict,notes}
+let recs={};            // id -> {id,item,frames,W,H,dur,metrics,score,verdict,notes,validity,templateType,notes_user,include}
+let merges=[];          // 合成標準
+let globalBase=0;
+const FPS=()=>parseInt($("fpsSel").value,10);
+
+/* ---- 檔名 → 品勢 ---- */
 function mapType(filename){
   const base=filename.replace(/\.[^.]+$/,"");
   const num={"一":1,"二":2,"三":3,"四":4,"五":5,"六":6,"七":7,"八":8};
   const m=base.match(/太極([一二三四五六七八])章/);
-  if(m) return {poomsaeType:"taegeuk_"+num[m[1]], name:base+"-標準"};
-  return {poomsaeType:"other", name:base+"-標準"};
+  if(m) return {poomsaeType:"taegeuk_"+num[m[1]], name:base};
+  return {poomsaeType:"other", name:base};
 }
+const TYPE_LABEL={taegeuk_1:"太極一章",taegeuk_2:"太極二章",taegeuk_3:"太極三章",taegeuk_4:"太極四章",taegeuk_5:"太極五章",taegeuk_6:"太極六章",taegeuk_7:"太極七章",taegeuk_8:"太極八章",other:"其他"};
+const typeSelectHTML=(sel)=>Object.keys(TYPE_LABEL).map(k=>`<option value="${k}" ${k===sel?"selected":""}>${TYPE_LABEL[k]}</option>`).join("");
 
-/* 初始化 MediaPipe Tasks Vision PoseLandmarker（VIDEO 模式） */
+/* ---- 初始化 MediaPipe（numPoses:2 以偵測多人）---- */
 async function initMP(){
   try{
     const vision=await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14");
     const {PoseLandmarker,FilesetResolver}=vision;
     const fileset=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
     const model="https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
-    const opt=d=>({baseOptions:{modelAssetPath:model,delegate:d},runningMode:"VIDEO",numPoses:1,minPoseDetectionConfidence:.5,minTrackingConfidence:.5});
+    const opt=d=>({baseOptions:{modelAssetPath:model,delegate:d},runningMode:"VIDEO",numPoses:2,minPoseDetectionConfidence:.5,minTrackingConfidence:.5});
     try{ landmarker=await PoseLandmarker.createFromOptions(fileset,opt("GPU")); }
     catch(e){ landmarker=await PoseLandmarker.createFromOptions(fileset,opt("CPU")); }
-    mpReady=true; mpStatus.className="pill ok"; mpStatus.textContent="AI 模型已就緒";
-    refreshRunBtn();
-  }catch(e){ console.error(e); mpStatus.className="pill warn"; mpStatus.textContent="模型載入失敗（需網路）"; }
+    mpReady=true; $("mpStatus").className="pill ok"; $("mpStatus").textContent="AI 模型已就緒";
+    refreshStep1();
+  }catch(e){ console.error(e); $("mpStatus").className="pill bad"; $("mpStatus").textContent="模型載入失敗（需網路）"; }
 }
 initMP();
 
-filesInput.addEventListener("change",e=>{
-  files=[...e.target.files].filter(f=>f.type.startsWith("video")||/\.(mp4|webm|mov|m4v)$/i.test(f.name));
-  cntLab.textContent=files.length;
-  results=[]; exportBtn.disabled=true; resultPill.textContent="尚無結果"; resultPill.className="pill";
-  renderList(files.map(f=>({name:f.name,status:"wait"})));
-  refreshRunBtn();
-});
-function refreshRunBtn(){ runBtn.disabled=!(mpReady&&files.length&&!running); }
-
-function renderList(rows){
-  listEl.innerHTML=rows.map((r,i)=>{
-    const t=mapType(r.name);
-    const stc={wait:"等待中",run:"處理中…",done:"完成",bad:"無有效骨架"}[r.status]||r.status;
-    return `<div class="it"><div><div class="nm">${r.name}</div>
-      <div class="meta">→ ${t.name}${r.detail?(" · "+r.detail):""}</div></div>
-      <div class="st ${r.status}" id="st-${i}">${stc}</div></div>`;
-  }).join("");
+/* ====================== STEP 導覽 ====================== */
+let curStep=1;
+function goStep(n){
+  curStep=n;
+  for(let i=1;i<=5;i++) $("p"+i).classList.toggle("show",i===n);
+  document.querySelectorAll(".step-chip").forEach(c=>{
+    const s=+c.dataset.s; c.classList.toggle("active",s===n); c.classList.toggle("done",s<n);
+  });
+  if(n===4) renderReview();
+  if(n===5) renderExportStep();
+  window.scrollTo({top:0,behavior:"smooth"});
 }
+document.querySelectorAll(".step-chip").forEach(c=>c.addEventListener("click",()=>{
+  const s=+c.dataset.s;
+  if(s<=curStep || c.classList.contains("done")) goStep(s);
+}));
+$("toStep2").onclick=()=>goStep(2);
+$("back1").onclick=()=>goStep(1);
+$("toStep3").onclick=()=>goStep(3);
+$("back2").onclick=()=>goStep(2);
+$("toStep4").onclick=()=>goStep(4);
+$("back3").onclick=()=>goStep(3);
+$("toStep5").onclick=()=>goStep(5);
+$("back4").onclick=()=>goStep(4);
+goStep(1);
 
-/* 逐 frame 定位（seek）後偵測 */
+/* ====================== STEP 1 ====================== */
+$("files").addEventListener("change",e=>{
+  const fs=[...e.target.files].filter(f=>f.type.startsWith("video")||/\.(mp4|webm|mov|m4v)$/i.test(f.name));
+  items=fs.map((f,i)=>{ const t=mapType(f.name); return {id:"v"+Date.now()+"_"+i,file:f,name:f.name,poomsaeName:t.name,poomsaeType:t.poomsaeType}; });
+  qc={}; recs={}; merges=[];
+  $("cntLab").textContent=items.length;
+  $("qcPill").textContent="尚未檢查"; $("qcPill").className="pill";
+  $("toStep3").disabled=true; $("toStep4").disabled=true; $("toStep5").disabled=true;
+  refreshStep1();
+});
+function refreshStep1(){ $("toStep2").disabled=!(mpReady&&items.length); }
+
+/* ====================== 共用：影片逐格處理 ====================== */
 function seek(v,t){return new Promise(res=>{const done=()=>{v.removeEventListener("seeked",done);res();};v.addEventListener("seeked",done);v.currentTime=Math.min(t,Math.max(0,v.duration-0.001));});}
-
-async function processVideo(file,idx,rows){
-  rows[idx].status="run"; renderList(rows);
+async function openVideo(file){
   const url=URL.createObjectURL(file);
   const v=document.createElement("video"); v.muted=true; v.playsInline=true; v.preload="auto"; v.src=url;
-  await new Promise((res,rej)=>{v.onloadedmetadata=()=>res(); v.onerror=()=>rej("影片載入失敗");});
-  const W=v.videoWidth||640,H=v.videoHeight||480,dur=v.duration||0;
-  const step=1/FPS, frames=[]; const total=Math.max(1,Math.floor(dur/step));
-  let k=0;
-  for(let t=0;t<dur;t+=step){
-    await seek(v,t);
+  await new Promise((res,rej)=>{v.onloadedmetadata=()=>res(); v.onerror=()=>rej(new Error("影片載入失敗"));});
+  return {v,url,W:v.videoWidth||640,H:v.videoHeight||480,dur:v.duration||0};
+}
+function pickMainPose(landmarks){ // 多人時取 bbox 最大者
+  if(!landmarks||!landmarks.length) return null;
+  if(landmarks.length===1) return landmarks[0];
+  let best=landmarks[0],bestH=-1;
+  for(const lm of landmarks){ const ys=lm.filter(p=>p.visibility>.3).map(p=>p.y); if(ys.length){const h=Math.max(...ys)-Math.min(...ys); if(h>bestH){bestH=h;best=lm;}} }
+  return best;
+}
+const packLm=lm=>lm.slice(0,33).map(p=>[r3(p.x),r3(p.y),r3(p.z),r2(p.visibility)]);
+
+/* ---- 從 frames 計算品質指標 ---- */
+function computeMetrics(frames, attempts, multiCount){
+  const n=frames.length;
+  const detection = attempts? n/attempts : 0;
+  let fullBody=0; const confs=[],heights=[],torsos=[],occ=[];
+  for(const f of frames){
+    const lm=f.lm;
+    const headVis=Math.max(lm[J.nose][3],lm[J.Lear][3],lm[J.Rear][3]);
+    const ankVis=Math.min(lm[J.Lank][3],lm[J.Rank][3]);
+    const headIn=lm[J.nose][1]>=0&&lm[J.nose][1]<=1;
+    const feetIn=lm[J.Lank][1]<=1.03&&lm[J.Rank][1]<=1.03;
+    if(headVis>.4&&ankVis>.35&&headIn&&feetIn) fullBody++;
+    // bbox height
+    const vy=lm.filter(p=>p[3]>.3).map(p=>p[1]); if(vy.length) heights.push(Math.max(...vy)-Math.min(...vy));
+    // confidence + occlusion
+    let vs=0,lo=0; for(const i of QJ){const v=lm[i][3]; vs+=v; if(v<.5)lo++;} confs.push(vs/QJ.length); occ.push(lo/QJ.length);
+    // torso length (肩中→髖中)
+    const shx=(lm[J.Lsh][0]+lm[J.Rsh][0])/2, shy=(lm[J.Lsh][1]+lm[J.Rsh][1])/2;
+    const hx=(lm[J.Lhip][0]+lm[J.Rhip][0])/2, hy=(lm[J.Lhip][1]+lm[J.Rhip][1])/2;
+    torsos.push(Math.hypot(shx-hx,shy-hy));
+  }
+  const fullBodyRatio = n? fullBody/n : 0;
+  const avgConf = mean(confs);
+  const personSize = median(heights);
+  const occlusion = mean(occ);
+  const mt=mean(torsos);
+  const stability = mt>0 ? clamp(1-(std(torsos)/mt),0,1) : 0;
+  const multiRatio = attempts? multiCount/attempts : 0;
+  // 加權總分
+  const score=Math.round(100*(
+    detection*0.28 + fullBodyRatio*0.24 + avgConf*0.14 +
+    clamp(personSize/0.6,0,1)*0.10 + (1-clamp(multiRatio,0,1))*0.10 +
+    stability*0.08 + (1-clamp(occlusion/0.5,0,1))*0.06
+  ));
+  return {detection,fullBodyRatio,avgConf,personSize,occlusion,stability,multiRatio,score:clamp(score,0,100),validFrames:n,attempts};
+}
+
+/* ---- 教練語言：判斷 + 建議 ---- */
+function verdictOf(m){
+  if(m.personSize<0.38) return "不建議使用";
+  if(m.detection<0.6||m.score<60) return "不建議使用";
+  if(m.score>=80&&m.detection>=0.85&&m.fullBodyRatio>=0.8&&m.multiRatio<0.12) return "正式標準";
+  return "訓練參考";
+}
+function coachNotes(m,verdict){
+  const out=[];
+  if(verdict==="正式標準") out.push("✅ 畫質與骨架辨識都很好，適合建立正式標準範本。");
+  else if(verdict==="訓練參考") out.push("⚠️ 可以用，但品質不是最佳，建議當訓練參考；要當正式標準最好重拍。");
+  else out.push("❌ 這支影片不建議作為標準範本。");
+  if(m.personSize<0.45) out.push("畫面中人物太小，建議靠近或拉近鏡頭重新拍攝。");
+  if(m.fullBodyRatio<0.75) out.push("常常沒有完整入鏡（頭或腳超出畫面），請讓全身都在框內。");
+  if(m.detection<0.75) out.push("骨架遺失率偏高，請改善光線、避免太暗或背景雜亂。");
+  if(m.multiRatio>0.12) out.push("畫面中常出現一人以上，標準範本需要單人示範。");
+  if(m.stability<0.6) out.push("鏡頭或追蹤不穩定（晃動／忽遠忽近），建議用腳架固定機位。");
+  if(m.occlusion>0.3) out.push("肢體常被遮擋、關節看不清楚，建議換拍攝角度。");
+  return out;
+}
+function purposeLine(rec){
+  const lab=TYPE_LABEL[rec.item.poomsaeType]||rec.item.poomsaeType;
+  if(rec.verdict==="正式標準") return `此範本可作為「${rec.item.poomsaeName}」（${lab}）的正式比對標準。`;
+  if(rec.verdict==="訓練參考") return `此範本可用於「${rec.item.poomsaeName}」動作的訓練參考，但精度有限。`;
+  return `不建議用「${rec.item.poomsaeName}」這支影片作為標準，請重拍後再建。`;
+}
+
+/* ====================== STEP 2 品質檢查（快速取樣） ====================== */
+$("qcBtn").onclick=async()=>{
+  if(!mpReady||!items.length) return;
+  $("qcBtn").disabled=true; $("qcPill").className="pill busy"; $("qcPill").textContent="檢查中…";
+  globalBase=0;
+  renderQcList(true);
+  for(let i=0;i<items.length;i++){
+    $("qcBar").style.width=Math.round(i/items.length*100)+"%";
+    try{ qc[items[i].id]=await quickCheck(items[i],i); }
+    catch(e){ qc[items[i].id]={error:String(e.message||e)}; }
+    renderQcList(true);
+  }
+  $("qcBar").style.width="100%";
+  $("qcBtn").disabled=false; $("qcPill").className="pill ok"; $("qcPill").textContent="檢查完成";
+  $("toStep3").disabled=false;
+};
+async function quickCheck(item,idx){
+  const {v,url,W,H,dur}=await openVideo(item.file);
+  const SAMPLES=Math.min(26,Math.max(10,Math.round(dur*2)));
+  const frames=[]; let attempts=0,multi=0;
+  for(let s=0;s<SAMPLES;s++){
+    const t=dur*(s+0.5)/SAMPLES;
+    await seek(v,t); attempts++;
     let ts=globalBase+Math.round(t*1000);
     try{
       const res=landmarker.detectForVideo(v,ts);
-      if(res&&res.landmarks&&res.landmarks.length){
-        frames.push({t:Math.round(t*1000),lm:res.landmarks[0].slice(0,33).map(p=>[r3(p.x),r3(p.y),r3(p.z),r2(p.visibility)])});
-      }
-    }catch(e){/* 單格略過 */}
-    k++;
-    if(k%5===0){ const fp=k/total; setFileProgress(idx,fp,frames.length); await new Promise(r=>setTimeout(r,0)); }
+      const lms=res&&res.landmarks||[];
+      if(lms.length>=2) multi++;
+      const main=pickMainPose(lms);
+      if(main) frames.push({t:Math.round(t*1000),lm:packLm(main)});
+    }catch(e){}
   }
   globalBase+=Math.round(dur*1000)+1000;
   URL.revokeObjectURL(url);
-
-  const t=mapType(file.name);
-  const rec={ id:"rec_"+Date.now()+"_"+idx, schemaVersion:1,
-    meta:{ name:t.name, poomsaeType:t.poomsaeType, createdAt:new Date().toISOString(), isTemplate:true,
-      demonstrator:"影片示範", note:"批次匯入("+file.name+")", fps:FPS, frameCount:frames.length,
-      durationMs:frames.length?frames[frames.length-1].t:0, video:{width:W,height:H,aspect:+(W/H).toFixed(3)},
-      encoding:{decimals:3,hasZ:true,visQuant:2} },
-    summary:null, frames };
-  rows[idx].status=frames.length>=10?"done":"bad";
-  rows[idx].detail=`${frames.length} 格 / ${dur.toFixed(1)}s`;
-  renderList(rows);
-  return frames.length>=10?rec:null;
+  const m=computeMetrics(frames,attempts,multi); m.W=W;m.H=H;m.dur=dur;
+  const verdict=verdictOf(m);
+  return {metrics:m,score:m.score,verdict,notes:coachNotes(m,verdict)};
 }
-function setFileProgress(idx,fp,nframes){
-  const el=$("st-"+idx); if(el){el.textContent=Math.round(fp*100)+"%（"+nframes+"格）"; el.className="st run";}
-  const overall=(idx+fp)/files.length;
-  overallBar.style.width=Math.round(overall*100)+"%";
-  overallTxt.textContent=`處理第 ${idx+1}/${files.length} 支…`;
+function scoreColor(s){return s>=80?"var(--green)":s>=60?"var(--yellow)":"var(--red)";}
+function verdictClass(v){return v==="正式標準"?"v-go":v==="訓練參考"?"v-ref":"v-no";}
+function meterRow(lab,val,fmt){
+  const pct=clamp(val,0,1)*100;
+  return `<div class="qrow"><span class="lab">${lab}</span><div class="qbar"><i style="width:${pct}%;background:${scoreColor(pct)}"></i></div><span class="qval">${fmt}</span></div>`;
 }
-
-runBtn.addEventListener("click",async()=>{
-  if(!mpReady||!files.length||running) return;
-  running=true; runBtn.disabled=true; exportBtn.disabled=true; globalBase=0; results=[];
-  overallPill.className="pill busy"; overallPill.textContent="處理中";
-  const rows=files.map(f=>({name:f.name,status:"wait"})); renderList(rows);
-  for(let i=0;i<files.length;i++){
-    try{ const rec=await processVideo(files[i],i,rows); if(rec)results.push(rec); }
-    catch(e){ rows[i].status="bad"; rows[i].detail=String(e); renderList(rows); }
+function metricsBlock(m){
+  return meterRow("骨架辨識率",m.detection,Math.round(m.detection*100)+"%")
+    +meterRow("全身入鏡",m.fullBodyRatio,Math.round(m.fullBodyRatio*100)+"%")
+    +meterRow("平均信心值",m.avgConf,Math.round(m.avgConf*100)+"%")
+    +meterRow("畫面穩定度",m.stability,Math.round(m.stability*100)+"%")
+    +meterRow("人物大小",clamp(m.personSize/0.7,0,1),Math.round(m.personSize*100)+"%高")
+    +meterRow("無遮擋",1-clamp(m.occlusion/0.5,0,1),Math.round((1-m.occlusion)*100)+"%")
+    +meterRow("單人畫面",1-clamp(m.multiRatio,0,1),Math.round((1-m.multiRatio)*100)+"%");
+}
+function renderQcList(){
+  $("qcList").innerHTML=items.map(it=>{
+    const q=qc[it.id];
+    if(!q) return card(it,`<span class="st wait">等待檢查…</span>`,"");
+    if(q.error) return card(it,`<span class="st bad">讀取失敗</span>`,`<div class="mini">${esc(q.error)}</div>`);
+    const m=q.metrics;
+    const body=`
+      <div class="score"><span class="big" style="color:${scoreColor(q.score)}">${q.score}</span><span class="mini">/100 品質分數</span>
+        <span class="verdict ${verdictClass(q.verdict)}" style="margin-left:auto">${q.verdict}</span></div>
+      <div class="mini" style="margin-top:4px">長度 ${m.dur.toFixed(1)}s · 解析度 ${m.W}×${m.H}</div>
+      ${metricsBlock(m)}
+      <ul class="coachnotes">${q.notes.map(n=>`<li>${esc(n)}</li>`).join("")}</ul>`;
+    return card(it,`<span class="st ${q.verdict==="正式標準"?"done":q.verdict==="訓練參考"?"warn":"bad"}">${q.verdict}</span>`,body);
+  }).join("");
+  function card(it,statusHtml,body){
+    return `<div class="it"><div class="top"><div class="nm">${esc(it.name)}</div>${statusHtml}</div>
+      <div class="meta">→ ${esc(it.poomsaeName)}（${TYPE_LABEL[it.poomsaeType]}）</div>${body}</div>`;
   }
-  overallBar.style.width="100%"; overallPill.className="pill ok"; overallPill.textContent="完成";
-  overallTxt.textContent=`完成 ${results.length}/${files.length} 支（有效骨架）。`;
-  running=false; refreshRunBtn();
-  if(results.length){ exportBtn.disabled=false; resultPill.className="pill ok"; resultPill.textContent=results.length+" 支可匯出"; }
-  else { resultPill.className="pill warn"; resultPill.textContent="全部無有效骨架"; }
-});
+}
 
-exportBtn.addEventListener("click",()=>{
-  if(!results.length) return;
-  const blob=new Blob([JSON.stringify(results)],{type:"application/json;charset=utf-8"});
-  const u=URL.createObjectURL(blob); const a=document.createElement("a");
-  a.href=u; a.download="poomsae-templates-all.json"; a.click(); URL.revokeObjectURL(u);
-});
+/* ====================== STEP 3 批次抽取 ====================== */
+const pv=$("preview"), pvx=pv.getContext("2d");
+function drawSkeleton(ctx,w,h,lm,alpha=1){
+  ctx.lineWidth=Math.max(2,w/180); ctx.lineCap="round";
+  for(const [a,b] of CONN){
+    const pa=lm[a],pb=lm[b]; const vis=Math.min(pa[3],pb[3]);
+    ctx.strokeStyle=vis>=.5?`rgba(91,230,255,${alpha})`:`rgba(255,93,108,${alpha*.85})`;
+    ctx.beginPath(); ctx.moveTo(pa[0]*w,pa[1]*h); ctx.lineTo(pb[0]*w,pb[1]*h); ctx.stroke();
+  }
+  for(let i=0;i<33;i++){const p=lm[i]; ctx.fillStyle=p[3]>=.5?`rgba(70,230,168,${alpha})`:`rgba(255,209,102,${alpha})`;
+    ctx.beginPath(); ctx.arc(p[0]*w,p[1]*h,Math.max(2.5,w/150),0,7); ctx.fill();}
+}
+function frameQuality(lm){ // 回傳 0=遺失 1=低信心 2=良好（給 timeline 上色）
+  if(!lm) return 0;
+  let vs=0; for(const i of QJ) vs+=lm[i][3]; const avg=vs/QJ.length;
+  return avg>=.6?2:1;
+}
+function renderTimeline(el,arr){
+  el.innerHTML=arr.map(q=>{const c=q===2?"var(--green)":q===1?"var(--yellow)":"var(--red)";return `<span class="seg" style="flex:1;background:${c}"></span>`;}).join("");
+}
+
+$("exBtn").onclick=async()=>{
+  if(!mpReady||!items.length) return;
+  $("exBtn").disabled=true; $("exPill").className="pill busy"; $("exPill").textContent="抽取中…";
+  globalBase=0; recs={};
+  const skip=$("skipBad").checked;
+  const queue=items.filter(it=>!skip || (qc[it.id]&&qc[it.id].verdict!=="不建議使用"));
+  renderExList();
+  for(let i=0;i<queue.length;i++){
+    $("exTxt").textContent=`處理第 ${i+1}/${queue.length} 支：${queue[i].name}`;
+    try{ recs[queue[i].id]=await extractFull(queue[i],i,queue.length); }
+    catch(e){ recs[queue[i].id]={item:queue[i],error:String(e.message||e)}; }
+    renderExList();
+    $("exBar").style.width=Math.round((i+1)/queue.length*100)+"%";
+  }
+  $("exTxt").textContent=`完成。共產生 ${Object.values(recs).filter(r=>r.frames&&r.frames.length).length} 份範本資料。`;
+  $("exPill").className="pill ok"; $("exPill").textContent="抽取完成";
+  $("exBtn").disabled=false;
+  $("toStep4").disabled=false;
+};
+async function extractFull(item,idx,tot){
+  const {v,url,W,H,dur}=await openVideo(item.file);
+  pv.width=480; pv.height=Math.round(480*H/W)||360;
+  const fps=FPS(), step=1/fps, frames=[], validity=[]; let attempts=0,multi=0;
+  const total=Math.max(1,Math.floor(dur/step));
+  let k=0;
+  for(let t=0;t<dur;t+=step){
+    await seek(v,t); attempts++;
+    let ts=globalBase+Math.round(t*1000), main=null;
+    try{
+      const res=landmarker.detectForVideo(v,ts);
+      const lms=res&&res.landmarks||[]; if(lms.length>=2) multi++;
+      main=pickMainPose(lms);
+      if(main){const packed=packLm(main); frames.push({t:Math.round(t*1000),lm:packed}); validity.push(frameQuality(packed));}
+      else validity.push(0);
+    }catch(e){ validity.push(0); }
+    // live preview
+    pvx.drawImage(v,0,0,pv.width,pv.height);
+    if(main) drawSkeleton(pvx,pv.width,pv.height,packLm(main));
+    k++;
+    if(k%3===0){
+      $("previewLab").textContent=`第 ${idx+1}/${tot} 支 · ${item.name} · ${Math.round(k/total*100)}%（已抓 ${frames.length} 格）`;
+      renderTimeline($("liveTimeline"),validity);
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  globalBase+=Math.round(dur*1000)+1000; URL.revokeObjectURL(url);
+  renderTimeline($("liveTimeline"),validity);
+  const m=computeMetrics(frames,attempts,multi); m.W=W;m.H=H;m.dur=dur;
+  const verdict=verdictOf(m);
+  return {id:item.id,item,frames,W,H,dur,metrics:m,score:m.score,verdict,notes:coachNotes(m,verdict),
+    validity,templateType:"初學者標準",notes_user:"",include:verdict!=="不建議使用"};
+}
+function renderExList(){
+  $("exList").innerHTML=items.map(it=>{
+    const r=recs[it.id];
+    let st=`<span class="st wait">—</span>`, detail="";
+    if(r){
+      if(r.error){st=`<span class="st bad">失敗</span>`;detail=`<div class="mini">${esc(r.error)}</div>`;}
+      else{
+        const cls=r.verdict==="正式標準"?"done":r.verdict==="訓練參考"?"warn":"bad";
+        st=`<span class="st ${cls}">${r.frames.length} 格 · ${r.score}分</span>`;
+        detail=`<div class="mini">${r.dur.toFixed(1)}s · 遺失 ${Math.round((1-r.metrics.detection)*100)}% · ${r.verdict}</div>`;
+      }
+    }
+    return `<div class="it"><div class="top"><div class="nm">${esc(it.name)}</div>${st}</div>
+      <div class="meta">→ ${esc(it.poomsaeName)}（${TYPE_LABEL[it.poomsaeType]}）</div>${detail}</div>`;
+  }).join("");
+}
+
+/* ====================== STEP 4 檢查與確認 ====================== */
+function allRecs(){ return Object.values(recs).filter(r=>r.frames&&r.frames.length); }
+function renderReview(){
+  const list=allRecs();
+  $("revPill").textContent=list.length?`${list.length} 份範本`:"無範本";
+  $("revPill").className=list.length?"pill ok":"pill warn";
+  $("revList").innerHTML=list.map(r=>{
+    const m=r.metrics;
+    return `<div class="it" data-id="${r.id}">
+      <div class="top">
+        <label class="switch"><input type="checkbox" class="inc" ${r.include?"checked":""}> 納入匯出</label>
+        <span class="verdict ${verdictClass(r.verdict)}">${r.verdict}</span>
+      </div>
+      <div class="grid2" style="margin-top:9px">
+        <div><div class="mini">品勢名稱</div><input type="text" class="nmIn" value="${esc(r.item.poomsaeName)}"></div>
+        <div><div class="mini">品勢章節</div><select class="typeIn">${typeSelectHTML(r.item.poomsaeType)}</select></div>
+      </div>
+      <div class="grid2" style="margin-top:8px">
+        <div><div class="mini">範本類型</div><select class="ttIn">${TYPE_OPTS.map(o=>`<option ${o[0]===r.templateType?"selected":""}>${o[0]}</option>`).join("")}</select></div>
+        <div><div class="mini">品質分數</div><div class="score"><span class="big" style="font-size:24px;color:${scoreColor(r.score)}">${r.score}</span><span class="mini">/100</span></div></div>
+      </div>
+      <div class="mini" style="margin-top:8px"><b>抽取結果：</b>來源「${esc(r.item.name)}」· 長度 ${m.dur.toFixed(1)}s · 有效骨架 ${m.validFrames} 格 · 遺失 ${Math.round((1-m.detection)*100)}% · 平均信心 ${Math.round(m.avgConf*100)}%</div>
+      <div class="mini" style="margin-top:4px;color:#d7e6f5">${esc(purposeLine(r))}</div>
+      <ul class="coachnotes">${r.notes.map(n=>`<li>${esc(n)}</li>`).join("")}</ul>
+      <div class="timeline" style="margin-top:8px">${r.validity.map(q=>{const c=q===2?"var(--green)":q===1?"var(--yellow)":"var(--red)";return `<span class="seg" style="flex:1;background:${c}"></span>`;}).join("")}</div>
+      <div class="mini" style="margin-top:3px">骨架時間軸（紅＝遺失片段）</div>
+      <div style="margin-top:8px"><div class="mini">備註</div><textarea class="noteIn" placeholder="例：示範速度偏慢／第二趟較標準">${esc(r.notes_user)}</textarea></div>
+      <div class="navrow" style="margin-top:8px"><button class="btn-ghost playBtn" style="flex:0 0 130px">▶ 骨架預覽</button><div style="flex:1"></div></div>
+    </div>`;
+  }).join("")||`<div class="mini">尚無抽取結果，請回上一步先抽取骨架。</div>`;
+
+  // 綁定
+  $("revList").querySelectorAll(".it").forEach(el=>{
+    const id=el.dataset.id, r=recs[id];
+    el.querySelector(".inc").onchange=e=>{r.include=e.target.checked; updateStep4Next();};
+    el.querySelector(".nmIn").oninput=e=>{r.item.poomsaeName=e.target.value;};
+    el.querySelector(".typeIn").onchange=e=>{r.item.poomsaeType=e.target.value;};
+    el.querySelector(".ttIn").onchange=e=>{r.templateType=e.target.value;};
+    el.querySelector(".noteIn").oninput=e=>{r.notes_user=e.target.value;};
+    el.querySelector(".playBtn").onclick=()=>openReplay(r);
+  });
+  renderMergeList();
+  updateStep4Next();
+}
+function updateStep4Next(){
+  const n=allRecs().filter(r=>r.include).length + merges.filter(m=>m.include).length;
+  $("toStep5").disabled=n===0;
+}
+
+/* ---- 骨架重播 ---- */
+const rcv=$("replayCv"), rcx=rcv.getContext("2d");
+let rb={frames:[],raf:0,playing:false,start:0,dur:1,aspect:4/3};
+function openReplay(rOrMerge){
+  const fr=rOrMerge.frames; if(!fr.length){alert("沒有可重播的骨架資料。");return;}
+  $("replayCard").style.display="block";
+  $("replayTitle").textContent="骨架預覽 · "+(rOrMerge.item?rOrMerge.item.poomsaeName:rOrMerge.poomsaeName);
+  rb.frames=fr; rb.dur=fr[fr.length-1].t||1; rb.aspect=(rOrMerge.W||640)/(rOrMerge.H||480);
+  rcv.width=480; rcv.height=Math.round(480/rb.aspect)||360;
+  $("replayTimeline").innerHTML=(rOrMerge.validity||fr.map(()=>2)).map(q=>{const c=q===2?"var(--green)":q===1?"var(--yellow)":"var(--red)";return `<span class="seg" style="flex:1;background:${c}"></span>`;}).join("");
+  drawReplayAt(0); $("replaySlider").value=0; $("replayPlay").textContent="播放"; rb.playing=false;
+  $("replayCard").scrollIntoView({behavior:"smooth"});
+}
+function drawReplayAt(t){
+  rcx.fillStyle="#040a14"; rcx.fillRect(0,0,rcv.width,rcv.height);
+  let i=0; while(i<rb.frames.length-1&&rb.frames[i+1].t<=t)i++;
+  drawSkeleton(rcx,rcv.width,rcv.height,rb.frames[i].lm);
+  $("replayTime").textContent=(t/1000).toFixed(1)+"s / "+(rb.dur/1000).toFixed(1)+"s";
+  $("replaySlider").value=Math.round(t/rb.dur*1000);
+}
+$("replayPlay").onclick=()=>{
+  if(rb.playing){rb.playing=false;cancelAnimationFrame(rb.raf);$("replayPlay").textContent="播放";return;}
+  rb.playing=true; $("replayPlay").textContent="暫停";
+  const startT=(+$("replaySlider").value/1000)*rb.dur; rb.start=performance.now()-startT;
+  const loop=()=>{ if(!rb.playing)return; let el=performance.now()-rb.start; if(el>=rb.dur){el=rb.dur;rb.playing=false;$("replayPlay").textContent="播放";} drawReplayAt(el); if(rb.playing)rb.raf=requestAnimationFrame(loop);};
+  rb.raf=requestAnimationFrame(loop);
+};
+$("replaySlider").oninput=e=>{rb.playing=false;cancelAnimationFrame(rb.raf);$("replayPlay").textContent="播放";drawReplayAt((+e.target.value/1000)*rb.dur);};
+$("replayClose").onclick=()=>{rb.playing=false;cancelAnimationFrame(rb.raf);$("replayCard").style.display="none";};
+
+/* ====================== 多影片合成 ====================== */
+function resample(frames,K){ // 線性內插到 K 格（依時間正規化 0..1）
+  const tEnd=frames[frames.length-1].t||1, out=[];
+  for(let k=0;k<K;k++){
+    const tt=(k/(K-1))*tEnd;
+    let i=0; while(i<frames.length-1&&frames[i+1].t<=tt)i++;
+    const a=frames[i],b=frames[Math.min(i+1,frames.length-1)];
+    const span=(b.t-a.t)||1, w=clamp((tt-a.t)/span,0,1);
+    const lm=[]; for(let j=0;j<33;j++){const pa=a.lm[j],pb=b.lm[j];lm.push([pa[0]+(pb[0]-pa[0])*w,pa[1]+(pb[1]-pa[1])*w,pa[2]+(pb[2]-pa[2])*w,Math.min(pa[3],pb[3])]);}
+    out.push({t:Math.round(tt),lm});
+  }
+  return out;
+}
+$("mergeBtn").onclick=()=>{
+  merges=[];
+  const usable=allRecs().filter(r=>r.include && r.verdict!=="不建議使用");
+  const groups={};
+  usable.forEach(r=>{(groups[r.item.poomsaeType]=groups[r.item.poomsaeType]||[]).push(r);});
+  Object.keys(groups).forEach(type=>{
+    const g=groups[type]; if(g.length<2) return; // 需 2 支以上才合成
+    const K=60;
+    const resampled=g.map(r=>({rs:resample(r.frames,K),w:Math.max(1,r.score)}));
+    const wsum=resampled.reduce((s,x)=>s+x.w,0);
+    const dur=median(g.map(r=>r.dur));
+    const frames=[];
+    for(let k=0;k<K;k++){
+      const lm=[];
+      for(let j=0;j<33;j++){
+        let x=0,y=0,z=0,vis=0;
+        resampled.forEach(({rs,w})=>{const p=rs[k].lm[j];x+=p[0]*w;y+=p[1]*w;z+=p[2]*w;vis+=p[3]*w;});
+        lm.push([r3(x/wsum),r3(y/wsum),r3(z/wsum),r2(vis/wsum)]);
+      }
+      frames.push({t:Math.round((k/(K-1))*dur*1000),lm});
+    }
+    const m=computeMetrics(frames,frames.length,0); m.W=g[0].W;m.H=g[0].H;m.dur=dur;
+    const verdict=m.score>=70?"正式標準":m.score>=55?"訓練參考":"不建議使用";
+    merges.push({id:"merge_"+type+"_"+Date.now(),isMerge:true,poomsaeType:type,
+      poomsaeName:g[0].item.poomsaeName.replace(/-?標準$/,"")+"-合成標準",
+      sourceCount:g.length, sources:g.map(r=>r.item.name),
+      frames,W:g[0].W,H:g[0].H,dur,metrics:m,score:m.score,verdict,
+      templateType:"比賽標準",notes_user:`由 ${g.length} 支影片合成`,include:verdict!=="不建議使用",validity:frames.map(()=>2)});
+  });
+  renderMergeList(); updateStep4Next();
+  if(!merges.length) alert("沒有可合成的群組：同一個品勢需要 2 支以上「可用」影片才能合成平均標準。");
+};
+function renderMergeList(){
+  if(!merges.length){$("mergeList").innerHTML="";return;}
+  $("mergeList").innerHTML=merges.map(mg=>`
+    <div class="it" data-id="${mg.id}">
+      <div class="top">
+        <label class="switch"><input type="checkbox" class="mInc" ${mg.include?"checked":""}> 納入匯出</label>
+        <span class="tag merge">合成 ${mg.sourceCount} 支</span>
+        <span class="verdict ${verdictClass(mg.verdict)}">${mg.verdict}</span>
+      </div>
+      <div class="grid2" style="margin-top:9px">
+        <div><div class="mini">品勢名稱</div><input type="text" class="mNm" value="${esc(mg.poomsaeName)}"></div>
+        <div><div class="mini">合成品質分數</div><div class="score"><span class="big" style="font-size:24px;color:${scoreColor(mg.score)}">${mg.score}</span><span class="mini">/100</span></div></div>
+      </div>
+      <div class="mini" style="margin-top:6px">來源：${mg.sources.map(esc).join("、")}</div>
+      <div class="navrow" style="margin-top:8px"><button class="btn-ghost mPlay" style="flex:0 0 130px">▶ 骨架預覽</button><div style="flex:1"></div></div>
+    </div>`).join("");
+  $("mergeList").querySelectorAll(".it").forEach(el=>{
+    const mg=merges.find(x=>x.id===el.dataset.id);
+    el.querySelector(".mInc").onchange=e=>{mg.include=e.target.checked;updateStep4Next();};
+    el.querySelector(".mNm").oninput=e=>{mg.poomsaeName=e.target.value;};
+    el.querySelector(".mPlay").onclick=()=>openReplay(mg);
+  });
+}
+
+/* ====================== STEP 5 匯出 ====================== */
+function collect(){ // 回傳要匯出的「記錄」陣列（單片 + 合成）
+  const out=[];
+  allRecs().filter(r=>r.include).forEach(r=>out.push(toExport(r,false)));
+  merges.filter(m=>m.include).forEach(m=>out.push(toExport(m,true)));
+  return out;
+}
+function toExport(r,isMerge){
+  const W=r.W,H=r.H,aspect=+(W/H).toFixed(3);
+  const poomsaeType=isMerge?r.poomsaeType:r.item.poomsaeType;
+  const poomsaeName=isMerge?r.poomsaeName:r.item.poomsaeName;
+  const source=isMerge?`合成(${r.sourceCount}支)：${r.sources.join("、")}`:r.item.name;
+  const fps=isMerge?null:FPS();
+  const qualityScore=r.score;
+  const isTpl = qualityScore>=65 && r.frames.length>=10 && r.verdict==="正式標準";
+  return {
+    id:(isMerge?"merge_":"rec_")+Date.now()+"_"+Math.random().toString(36).slice(2,7),
+    schemaVersion:1,
+    meta:{
+      // ---- index-poomsae-v2.html 需要的相容欄位 ----
+      name:poomsaeName, poomsaeType, createdAt:new Date().toISOString(),
+      isTemplate:isTpl, demonstrator:$("createdBy").value||"影片示範",
+      note:r.notes_user||(isMerge?"多影片合成標準":"批次匯入"),
+      fps:fps||r.frames.length/Math.max(0.001,r.dur), frameCount:r.frames.length,
+      durationMs:r.frames.length?r.frames[r.frames.length-1].t:0,
+      video:{width:W,height:H,aspect}, encoding:{decimals:3,hasZ:true,visQuant:2},
+      qualityPct:qualityScore,
+      // ---- 新增：標準範本版本管理欄位 ----
+      poomsaeName, version:"1.0.0", createdBy:$("createdBy").value||"未填",
+      sourceVideoName:source, keypointCount:33, qualityScore, templateType:r.templateType,
+      notes:r.notes_user||"", recommendation:r.verdict, mergedFrom:isMerge?r.sources:undefined,
+      tool:"AI 品勢標準資料庫建立工具 v2"
+    },
+    summary:null, frames:r.frames
+  };
+}
+function renderExportStep(){
+  const out=collect();
+  const tplCount=out.filter(o=>o.meta.isTemplate).length;
+  $("expPill").textContent=out.length+" 份";
+  $("expSummary").innerHTML=out.length
+    ? `將匯出 <b>${out.length}</b> 份範本，其中 <b style="color:var(--green)">${tplCount}</b> 份品質達標、匯入後會自動成為標準範本，其餘為訓練參考。`
+    : `<span style="color:var(--yellow)">目前沒有勾選任何範本，請回 Step 4 勾選「納入匯出」。</span>`;
+}
+function dl(blob,filename){const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(u),2000);}
+
+$("expJson").onclick=()=>{
+  const out=collect(); if(!out.length){alert("沒有可匯出的範本，請先到 Step 4 勾選。");return;}
+  dl(new Blob([JSON.stringify(out)],{type:"application/json;charset=utf-8"}),"poomsae-standard-db-"+Date.now()+".json");
+};
+$("expCsv").onclick=()=>{
+  const out=collect(); if(!out.length){alert("沒有可匯出的範本。");return;}
+  const cols=["poomsaeName","poomsaeType","templateType","version","createdBy","createdAt","sourceVideoName","fps","frameCount","durationMs","keypointCount","qualityScore","recommendation","isTemplate","notes"];
+  const head=cols.join(",");
+  const rows=out.map(o=>cols.map(c=>{let v=o.meta[c];if(c==="poomsaeType")v=TYPE_LABEL[v]||v;return `"${String(v==null?"":v).replace(/"/g,'""')}"`;}).join(","));
+  dl(new Blob(["﻿"+head+"\n"+rows.join("\n")],{type:"text/csv;charset=utf-8"}),"poomsae-metadata-"+Date.now()+".csv");
+};
+$("expReport").onclick=()=>{
+  const out=collect(); if(!out.length){alert("沒有可匯出的範本。");return;}
+  const rowsHtml=out.map(o=>{const m=o.meta;const v=m.recommendation;const col=v==="正式標準"?"#0a8":"#c90";
+    const vc=v==="正式標準"?"#0a8":v==="訓練參考"?"#c90":"#c33";
+    return `<tr>
+      <td>${esc(m.poomsaeName)}</td><td>${esc(TYPE_LABEL[m.poomsaeType]||m.poomsaeType)}</td>
+      <td>${esc(m.templateType)}</td><td style="text-align:center">${m.frameCount}</td>
+      <td style="text-align:center">${(m.durationMs/1000).toFixed(1)}s</td>
+      <td style="text-align:center;font-weight:700;color:${m.qualityScore>=80?'#0a8':m.qualityScore>=60?'#c90':'#c33'}">${m.qualityScore}</td>
+      <td style="text-align:center;color:${vc};font-weight:700">${esc(v)}</td>
+      <td style="text-align:center">${m.isTemplate?'✔':'—'}</td>
+      <td>${esc(m.sourceVideoName)}</td></tr>`;}).join("");
+  const html=`<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>品勢標準範本品質報告</title>
+    <style>body{font-family:"Microsoft JhengHei",system-ui,sans-serif;margin:32px;color:#16324a}
+    h1{font-size:22px}.sub{color:#678}table{border-collapse:collapse;width:100%;margin-top:14px;font-size:13px}
+    th,td{border:1px solid #cdd;padding:7px 9px;text-align:left}th{background:#eef5fb}
+    .btn{display:inline-block;margin:14px 0;padding:9px 16px;background:#1573b8;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px}
+    @media print{.btn{display:none}}</style></head><body>
+    <h1>品勢標準範本品質報告</h1>
+    <div class="sub">建立者：${esc($("createdBy").value||"未填")}　產生時間：${new Date().toLocaleString("zh-TW")}　共 ${out.length} 份範本</div>
+    <button class="btn" onclick="window.print()">列印 / 另存 PDF</button>
+    <table><thead><tr><th>品勢名稱</th><th>章節</th><th>範本類型</th><th>幀數</th><th>長度</th><th>品質分數</th><th>建議用途</th><th>正式標準</th><th>來源影片</th></tr></thead>
+    <tbody>${rowsHtml}</tbody></table>
+    <p class="sub" style="margin-top:18px">本報告由「AI 品勢標準資料庫建立工具」產生。骨架資料僅供教學與動作比對研究使用。</p>
+    </body></html>`;
+  const u=URL.createObjectURL(new Blob([html],{type:"text/html;charset=utf-8"}));
+  window.open(u,"_blank"); setTimeout(()=>URL.revokeObjectURL(u),4000);
+};
+$("expSkel").onclick=()=>{
+  const out=collect(); if(!out.length){alert("沒有可匯出的範本。");return;}
+  const data=out.map(o=>({name:o.meta.poomsaeName,type:TYPE_LABEL[o.meta.poomsaeType]||o.meta.poomsaeType,
+    aspect:o.meta.video.aspect||1.33,dur:o.meta.durationMs,frames:o.frames}));
+  const CONNS=JSON.stringify(CONN);
+  const html=`<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>品勢骨架預覽</title><style>body{margin:0;background:#070d18;color:#eef5ff;font-family:system-ui,"Microsoft JhengHei",sans-serif;padding:16px}
+    select,button{font-size:15px;padding:9px 12px;border-radius:10px;border:1px solid #2a4a66;background:#0f1c30;color:#eef5ff}
+    canvas{display:block;margin:12px auto;background:#040a14;border:1px solid #2a4a66;border-radius:12px;max-width:100%}
+    .row{display:flex;gap:8px;align-items:center;max-width:480px;margin:0 auto}input[type=range]{flex:1}</style></head><body>
+    <h2 style="text-align:center">品勢骨架預覽（離線可播）</h2>
+    <div class="row"><select id="sel"></select></div>
+    <canvas id="c" width="480" height="360"></canvas>
+    <div class="row"><button id="pl">播放</button><input type="range" id="sl" min="0" max="1000" value="0"><span id="tm">0.0s</span></div>
+    <script>
+    const DATA=${JSON.stringify(data)},CONN=${CONNS};
+    const sel=document.getElementById('sel'),c=document.getElementById('c'),x=c.getContext('2d'),pl=document.getElementById('pl'),sl=document.getElementById('sl'),tm=document.getElementById('tm');
+    DATA.forEach((d,i)=>{const o=document.createElement('option');o.value=i;o.textContent=d.name+'（'+d.type+'）';sel.appendChild(o);});
+    let cur,playing=false,raf,start,dur;
+    function load(i){cur=DATA[i];dur=cur.dur||1;c.width=480;c.height=Math.round(480/(cur.aspect||1.33))||360;playing=false;cancelAnimationFrame(raf);pl.textContent='播放';draw(0);sl.value=0;}
+    function draw(t){x.fillStyle='#040a14';x.fillRect(0,0,c.width,c.height);let i=0;const f=cur.frames;while(i<f.length-1&&f[i+1].t<=t)i++;const lm=f[i].lm;x.lineWidth=Math.max(2,c.width/180);x.lineCap='round';
+      for(const[a,b]of CONN){const pa=lm[a],pb=lm[b];const v=Math.min(pa[3],pb[3]);x.strokeStyle=v>=.5?'#5be6ff':'#ff5d6c';x.beginPath();x.moveTo(pa[0]*c.width,pa[1]*c.height);x.lineTo(pb[0]*c.width,pb[1]*c.height);x.stroke();}
+      for(const p of lm){x.fillStyle=p[3]>=.5?'#46e6a8':'#ffd166';x.beginPath();x.arc(p[0]*c.width,p[1]*c.height,Math.max(2.5,c.width/150),0,7);x.fill();}
+      tm.textContent=(t/1000).toFixed(1)+'s / '+(dur/1000).toFixed(1)+'s';sl.value=Math.round(t/dur*1000);}
+    pl.onclick=()=>{if(playing){playing=false;cancelAnimationFrame(raf);pl.textContent='播放';return;}playing=true;pl.textContent='暫停';start=performance.now()-(sl.value/1000)*dur;const lp=()=>{if(!playing)return;let e=performance.now()-start;if(e>=dur){e=dur;playing=false;pl.textContent='播放';}draw(e);if(playing)raf=requestAnimationFrame(lp);};raf=requestAnimationFrame(lp);};
+    sl.oninput=e=>{playing=false;cancelAnimationFrame(raf);pl.textContent='播放';draw(e.target.value/1000*dur);};
+    sel.onchange=e=>load(+e.target.value);load(0);
+    <\/script></body></html>`;
+  dl(new Blob([html],{type:"text/html;charset=utf-8"}),"poomsae-skeleton-preview-"+Date.now()+".html");
+};
 </script>
 </body>
 </html>
